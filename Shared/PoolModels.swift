@@ -109,6 +109,8 @@ struct PoolSettings: Codable, Equatable {
             return max(0, proWeight)
         case "prolite", "pro_lite", "pro-lite":
             return max(0, proLiteWeight)
+        case "claude", "anthropic":
+            return 1
         default:
             return max(0, plusWeight)
         }
@@ -199,6 +201,8 @@ enum PlanType {
             return "Pro"
         case "prolite", "pro_lite", "pro-lite":
             return "Pro Lite"
+        case "claude", "anthropic":
+            return "Claude"
         default:
             return "Plus"
         }
@@ -291,6 +295,27 @@ struct AuthFile: Decodable, Identifiable, Hashable {
         normalizedProvider == "codex" || normalizedProvider.contains("openai")
     }
 
+    var isAnthropicLike: Bool {
+        normalizedProvider == "claude" ||
+        normalizedProvider == "anthropic" ||
+        normalizedProvider.contains("claude") ||
+        normalizedProvider.contains("anthropic")
+    }
+
+    var isAnthropicOAuth: Bool {
+        guard isAnthropicLike else {
+            return false
+        }
+        let normalizedAccountType = (accountType ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalizedAccountType == "oauth"
+    }
+
+    var supportsQuotaUsage: Bool {
+        isCodexLike || isAnthropicOAuth
+    }
+
     var isAvailable: Bool {
         guard !disabled, !unavailable else { return false }
         let normalizedStatus = (status ?? "").lowercased()
@@ -354,6 +379,18 @@ struct APIKeyUsageSnapshot: Codable, Hashable, Identifiable {
     var isCodexLike: Bool {
         let normalized = provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized == "codex" || normalized.contains("openai")
+    }
+
+    var isAnthropicLike: Bool {
+        let normalized = provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "claude" ||
+            normalized == "anthropic" ||
+            normalized.contains("claude") ||
+            normalized.contains("anthropic")
+    }
+
+    var supportsQuotaUsage: Bool {
+        isCodexLike || isAnthropicLike
     }
 
 }
@@ -448,6 +485,9 @@ struct UsageSnapshot: Codable, Hashable {
     var weeklyUsedPercent: Double?
     var weeklyResetSeconds: Double?
     var weeklyResetText: String?
+    var fableUsedPercent: Double? = nil
+    var fableResetSeconds: Double? = nil
+    var fableResetText: String? = nil
     var resetText: String?
     var rawStatus: String?
 
@@ -472,7 +512,9 @@ struct UsageSnapshot: Codable, Hashable {
         primaryUsedPercent != nil ||
         primaryResetSeconds != nil ||
         weeklyUsedPercent != nil ||
-        weeklyResetSeconds != nil
+        weeklyResetSeconds != nil ||
+        fableUsedPercent != nil ||
+        fableResetSeconds != nil
     }
 
     var weeklyRemainingPercent: Double? {
@@ -480,6 +522,13 @@ struct UsageSnapshot: Codable, Hashable {
             return nil
         }
         return max(0, min(100, 100 - weeklyUsedPercent))
+    }
+
+    var fableRemainingPercent: Double? {
+        guard let fableUsedPercent else {
+            return nil
+        }
+        return max(0, min(100, 100 - fableUsedPercent))
     }
 
     var primaryRemainingPercent: Double? {
@@ -506,6 +555,15 @@ struct UsageSnapshot: Codable, Hashable {
             return L10n.isChinese
                 ? "剩余 \(Self.format(weeklyRemainingPercent))%"
                 : "\(Self.format(weeklyRemainingPercent))% left"
+        }
+        return compactText
+    }
+
+    var fableCompactText: String {
+        if let fableRemainingPercent {
+            return L10n.isChinese
+                ? "剩余 \(Self.format(fableRemainingPercent))%"
+                : "\(Self.format(fableRemainingPercent))% left"
         }
         return compactText
     }
@@ -551,7 +609,14 @@ struct AccountUsage: Codable, Identifiable, Hashable {
     let error: String?
 
     var planType: String? {
-        usage?.planType
+        if let planType = usage?.planType {
+            return planType
+        }
+        let normalizedProvider = provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedProvider == "claude" || normalizedProvider.contains("anthropic") {
+            return "claude"
+        }
+        return nil
     }
 
     var weeklyWeightedRemaining: Double {

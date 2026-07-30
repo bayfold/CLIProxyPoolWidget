@@ -35,11 +35,11 @@ struct PoolSummaryService {
 
         do {
             let files = try await client.fetchAuthFiles()
-            let visibleFiles = client.settings.showOnlyCodex ? files.filter(\.isCodexLike) : files
+            let visibleFiles = client.settings.showOnlyCodex ? files.filter(\.supportsQuotaUsage) : files
 
             let xiaomi = await xiaomiTokenPlan
             let rawAPIKeyUsages = await apiKeyUsage
-            let apiKeyUsages = client.settings.showOnlyCodex ? rawAPIKeyUsages.filter { $0.isCodexLike } : rawAPIKeyUsages
+            let apiKeyUsages = client.settings.showOnlyCodex ? rawAPIKeyUsages.filter { $0.supportsQuotaUsage } : rawAPIKeyUsages
             let apiKeyUsageSummary = summarizeAPIKeyUsage(apiKeyUsages)
             let fileRecentRequests = visibleFiles.map { recentRequestBuckets(for: $0) }
             let apiKeyRecentRequests = mergeRecentRequests(from: apiKeyUsages.map(\.recentRequests), limit: 20)
@@ -257,7 +257,7 @@ struct PoolSummaryService {
                 provider: file.normalizedProvider,
                 isAvailable: file.isAvailable,
                 statusText: statusText(for: file),
-                weight: client.settings.weight(for: file.idToken?.planType),
+                weight: client.settings.weight(for: file.isAnthropicLike ? "claude" : file.idToken?.planType),
                 weeklyKillLinePercent: client.settings.weeklyKillLinePercent,
                 recentRequests: recentRequests,
                 usage: nil,
@@ -317,17 +317,24 @@ struct PoolSummaryService {
     }
 
     private func fetchUsageWithRetry(for file: AuthFile) async throws -> UsageSnapshot {
+        guard file.supportsQuotaUsage else {
+            throw PoolAPIError.unsupportedQuotaProvider(file.normalizedProvider)
+        }
         var lastError: Error?
+        let maximumAttempts = file.isAnthropicOAuth ? 1 : 2
 
-        for attempt in 0..<2 {
+        for attempt in 0..<maximumAttempts {
             do {
+                if file.isAnthropicOAuth {
+                    return try await client.fetchAnthropicUsage(authIndex: file.authIndex)
+                }
                 return try await client.fetchWhamUsage(
                     authIndex: file.authIndex,
                     chatgptAccountID: file.idToken?.chatgptAccountID
                 )
             } catch {
                 lastError = error
-                if attempt == 0 {
+                if attempt + 1 < maximumAttempts {
                     try? await Task.sleep(nanoseconds: 350_000_000)
                 }
             }

@@ -23,6 +23,9 @@ enum UsageParser {
         }
 
         let pairs = flatten(json)
+        if let anthropic = parseAnthropicUsage(from: pairs) {
+            return anthropic
+        }
         if let wham = parseWhamUsage(from: pairs) {
             return wham
         }
@@ -79,6 +82,133 @@ enum UsageParser {
             resetText: reset ?? resetSeconds.map(formatDuration(seconds:)),
             rawStatus: status
         )
+    }
+
+    private static func parseAnthropicUsage(from pairs: [(String, Any)]) -> UsageSnapshot? {
+        let primaryUsedPercent = anthropicPercent(
+            number(at: "five_hour.utilization", in: pairs) ??
+            number(at: "five_hour.used_percentage", in: pairs) ??
+            number(at: "rate_limits.five_hour.used_percentage", in: pairs)
+        )
+        let primaryResetSeconds = resetSeconds(
+            at: [
+                "five_hour.resets_at",
+                "rate_limits.five_hour.resets_at"
+            ],
+            in: pairs
+        )
+        let weeklyUsedPercent = anthropicPercent(
+            number(at: "seven_day.utilization", in: pairs) ??
+            number(at: "seven_day.used_percentage", in: pairs) ??
+            number(at: "rate_limits.seven_day.used_percentage", in: pairs)
+        )
+        let weeklyResetSeconds = resetSeconds(
+            at: [
+                "seven_day.resets_at",
+                "rate_limits.seven_day.resets_at"
+            ],
+            in: pairs
+        )
+        let fableWindow = anthropicFableWindow(in: pairs)
+
+        guard primaryUsedPercent != nil ||
+                primaryResetSeconds != nil ||
+                weeklyUsedPercent != nil ||
+                weeklyResetSeconds != nil ||
+                fableWindow != nil
+        else {
+            return nil
+        }
+
+        let resetSeconds = primaryResetSeconds ?? weeklyResetSeconds
+        return UsageSnapshot(
+            used: nil,
+            limit: nil,
+            remaining: nil,
+            usedPercent: nil,
+            planType: "claude",
+            primaryUsedPercent: primaryUsedPercent,
+            primaryResetSeconds: primaryResetSeconds,
+            primaryResetText: primaryResetSeconds.map(formatDuration(seconds:)),
+            weeklyUsedPercent: weeklyUsedPercent,
+            weeklyResetSeconds: weeklyResetSeconds,
+            weeklyResetText: weeklyResetSeconds.map(formatDuration(seconds:)),
+            fableUsedPercent: fableWindow?.usedPercent,
+            fableResetSeconds: fableWindow?.resetSeconds,
+            fableResetText: fableWindow?.resetSeconds.map(formatDuration(seconds:)),
+            resetText: resetSeconds.map(formatDuration(seconds:)),
+            rawStatus: "Claude"
+        )
+    }
+
+    private static func anthropicPercent(_ value: Double?) -> Double? {
+        guard let value else {
+            return nil
+        }
+        return max(0, min(100, value))
+    }
+
+    private struct AnthropicFableWindow {
+        let usedPercent: Double
+        let resetSeconds: Double?
+        let isActive: Bool
+    }
+
+    private static func anthropicFableWindow(in pairs: [(String, Any)]) -> AnthropicFableWindow? {
+        let prefixes = Set(pairs.compactMap { path, value -> String? in
+            guard path.hasPrefix("limits["),
+                  path.hasSuffix(".kind"),
+                  (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "weekly_scoped"
+            else {
+                return nil
+            }
+            return String(path.dropLast(".kind".count))
+        })
+
+        let candidates = prefixes.compactMap { prefix -> AnthropicFableWindow? in
+            let modelName = string(at: prefix + ".scope.model.display_name", in: pairs)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard modelName?.contains("fable") == true,
+                  let usedPercent = anthropicPercent(number(at: prefix + ".percent", in: pairs))
+            else {
+                return nil
+            }
+            return AnthropicFableWindow(
+                usedPercent: usedPercent,
+                resetSeconds: resetSeconds(at: [prefix + ".resets_at"], in: pairs),
+                isActive: bool(at: prefix + ".is_active", in: pairs) == true
+            )
+        }
+        if let active = candidates.first(where: \.isActive) ?? candidates.first {
+            return active
+        }
+
+        for prefix in ["iguana_necktie", "seven_day_fable"] {
+            guard let usedPercent = anthropicPercent(number(at: prefix + ".utilization", in: pairs)) else {
+                continue
+            }
+            return AnthropicFableWindow(
+                usedPercent: usedPercent,
+                resetSeconds: resetSeconds(at: [prefix + ".resets_at"], in: pairs),
+                isActive: true
+            )
+        }
+        return nil
+    }
+
+    private static func resetSeconds(at paths: [String], in pairs: [(String, Any)]) -> Double? {
+        for path in paths {
+            if let epoch = number(at: path, in: pairs),
+               let seconds = secondsUntilEpoch(epoch) {
+                return seconds
+            }
+            if let value = string(at: path, in: pairs),
+               let seconds = secondsUntilReset(value) {
+                return seconds
+            }
+        }
+        return nil
     }
 
     private static func parseWhamUsage(from pairs: [(String, Any)]) -> UsageSnapshot? {
@@ -209,6 +339,29 @@ enum UsageParser {
             return string
         }
         return nil
+    }
+
+    private static func bool(at path: String, in pairs: [(String, Any)]) -> Bool? {
+        guard let value = pairs.first(where: { $0.0 == path.lowercased() })?.1 else {
+            return nil
+        }
+        switch value {
+        case let value as Bool:
+            return value
+        case let value as NSNumber:
+            return value.boolValue
+        case let value as String:
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1", "yes":
+                return true
+            case "false", "0", "no":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
     }
 
     private static func pathComponent(_ path: String, matches key: String) -> Bool {

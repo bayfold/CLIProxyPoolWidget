@@ -5,6 +5,7 @@ import WebKit
 struct ContentView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var refreshCoordinator: PoolRefreshCoordinator
+    @EnvironmentObject private var quotaPrintManager: QuotaPrintManager
     @AppStorage(L10n.appLanguageKey) private var preferredLanguageCode = AppLanguagePreference.auto.rawValue
     @State private var draft = PoolSettings.empty
     @State private var hasLoadedSettings = false
@@ -12,7 +13,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            Form {
+            List {
                 Section(L10n.text("Connection", "连接")) {
                     TextField(L10n.text("Pool URL", "池地址"), text: $draft.baseURL)
                         .textFieldStyle(.roundedBorder)
@@ -61,11 +62,15 @@ struct ContentView: View {
                         value: $draft.usageAccountLimit,
                         in: 1...32
                     )
-                    Toggle(L10n.text("Show Codex/OpenAI accounts only", "只显示 Codex/OpenAI 账号"), isOn: $draft.showOnlyCodex)
+                    Toggle(
+                        L10n.text("Show supported quota accounts only", "只显示支持额度的账号"),
+                        isOn: $draft.showOnlyCodex
+                    )
                 }
 
                 Section(L10n.text("App Live Mode", "应用实时模式")) {
                     Toggle(L10n.text("Live refresh", "实时刷新"), isOn: $draft.liveRefreshEnabled)
+                        .disabled(quotaPrintManager.settings.enabled)
                     Stepper(
                         L10n.isChinese ? "间隔：\(draft.appRefreshSeconds) 秒" : "Interval: \(draft.appRefreshSeconds)s",
                         value: $draft.appRefreshSeconds,
@@ -81,6 +86,195 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                Section(L10n.text("Quota Receipts", "额度小票")) {
+                    Toggle(
+                        L10n.text("Print quota milestones", "打印额度档位汇报"),
+                        isOn: receiptEnabledBinding
+                    )
+
+                    Picker(
+                        L10n.text("System printer queue", "系统打印队列"),
+                        selection: $quotaPrintManager.settings.queueID
+                    ) {
+                        if quotaPrintManager.settings.queueID.isEmpty,
+                           quotaPrintManager.availableQueues.isEmpty {
+                            Text(L10n.text("No queues found", "未找到队列"))
+                                .tag("")
+                        }
+                        if !quotaPrintManager.settings.queueID.isEmpty,
+                           !quotaPrintManager.selectedQueueIsAvailable {
+                            Text("\(quotaPrintManager.settings.queueID) · \(L10n.text("Unavailable", "不可用"))")
+                                .tag(quotaPrintManager.settings.queueID)
+                        }
+                        ForEach(quotaPrintManager.availableQueues) { queue in
+                            Text(
+                                queue.isReady
+                                    ? queue.id == quotaPrintManager.defaultQueueID
+                                        ? "\(queue.displayName) · \(L10n.text("Default", "默认"))"
+                                        : queue.displayName
+                                    : "\(queue.displayName) · \(L10n.text("Stopped/offline", "停用/离线"))"
+                            )
+                            .tag(queue.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    HStack {
+                        Button {
+                            Task { await quotaPrintManager.reloadQueues() }
+                        } label: {
+                            Label(L10n.text("Refresh queues", "刷新队列"), systemImage: "arrow.clockwise")
+                        }
+                        .disabled(quotaPrintManager.isBusy)
+
+                        Button {
+                            Task { await quotaPrintManager.testPrint(summary: refreshCoordinator.summary) }
+                        } label: {
+                            Label(L10n.text("Test receipt", "测试小票"), systemImage: "printer")
+                        }
+                        .disabled(
+                            quotaPrintManager.isBusy ||
+                            quotaPrintManager.settings.queueID.isEmpty ||
+                            !quotaPrintManager.selectedQueueIsReady
+                        )
+
+                        if quotaPrintManager.isBusy {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    if !quotaPrintManager.settings.queueID.isEmpty,
+                       !quotaPrintManager.selectedQueueIsReady {
+                        Label(
+                            L10n.text(
+                                "This queue is stopped or offline. Receipts will not be submitted.",
+                                "该队列已停用或离线，不会提交任何小票。"
+                            ),
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    }
+
+                    if quotaPrintManager.settings.enabled {
+                        TextField(
+                            L10n.text("Receipt title", "小票标题"),
+                            text: $quotaPrintManager.settings.reportTitle
+                        )
+                        .textFieldStyle(.roundedBorder)
+
+                        Picker(
+                            L10n.text("Print every", "打印步进"),
+                            selection: $quotaPrintManager.settings.thresholdPercent
+                        ) {
+                            ForEach(QuotaPrintSettings.thresholdChoices, id: \.self) { threshold in
+                                Text(L10n.isChinese ? "每 \(threshold)%" : "Every \(threshold)%")
+                                    .tag(threshold)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Toggle("5h", isOn: $quotaPrintManager.settings.monitorFiveHour)
+                        Toggle("Week", isOn: $quotaPrintManager.settings.monitorWeek)
+
+                        if !quotaPrintManager.settings.monitorFiveHour,
+                           !quotaPrintManager.settings.monitorWeek {
+                            Label(
+                                L10n.text("Select at least one quota window.", "请至少选择一个额度窗口。"),
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        }
+
+                        Picker(
+                            L10n.text("Paper width", "纸张宽度"),
+                            selection: $quotaPrintManager.settings.paperWidthMM
+                        ) {
+                            Text("80 mm").tag(80)
+                            Text("58 mm").tag(58)
+                        }
+                        .pickerStyle(.segmented)
+
+                        Toggle(
+                            L10n.text("Partial cut after printing", "打印后半切"),
+                            isOn: $quotaPrintManager.settings.autoCut
+                        )
+
+                        Toggle(
+                            L10n.text("Quiet hours", "安静时段"),
+                            isOn: $quotaPrintManager.settings.quietHoursEnabled
+                        )
+                        if quotaPrintManager.settings.quietHoursEnabled {
+                            DatePicker(
+                                L10n.text("Quiet from", "安静开始"),
+                                selection: printerTimeBinding(\.quietStartMinutes),
+                                displayedComponents: .hourAndMinute
+                            )
+                            DatePicker(
+                                L10n.text("Quiet until", "安静结束"),
+                                selection: printerTimeBinding(\.quietEndMinutes),
+                                displayedComponents: .hourAndMinute
+                            )
+                            Text(
+                                L10n.text(
+                                    "Milestones crossed while quiet are combined into one latest report.",
+                                    "安静时段跨过的多个档位会合并成一张最新汇报。"
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Text(
+                            L10n.text(
+                                "Live refresh stays enabled while automatic receipts are active.",
+                                "启用自动小票期间会保持实时刷新。"
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    if let unknown = quotaPrintManager.deliveryUnknownEvent {
+                        let window = unknown.window == .fiveHour ? "5h" : "Week"
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(
+                                L10n.isChinese
+                                    ? "\(window) \(unknown.thresholdPercent)% 小票提交结果未知"
+                                    : "\(window) \(unknown.thresholdPercent)% receipt delivery is unknown",
+                                systemImage: "questionmark.circle.fill"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            HStack {
+                                Button(L10n.text("Reprint", "手动重印")) {
+                                    Task { await quotaPrintManager.retryUnknownDelivery() }
+                                }
+                                Button(L10n.text("Dismiss", "忽略")) {
+                                    quotaPrintManager.dismissUnknownDelivery()
+                                }
+                            }
+                        }
+                    }
+
+                    if let printerStatus = quotaPrintManager.statusMessage {
+                        Text(printerStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(
+                        L10n.text(
+                            "Automatic receipts require the app to remain running. Closing the window is fine; quitting the app stops monitoring.",
+                            "自动小票需要 App 保持运行；可以关闭窗口，但退出 App 后会停止监控。"
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 Section(L10n.text("Plan Weights", "套餐权重")) {
@@ -117,8 +311,8 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding()
-            .navigationSplitViewColumnWidth(min: 280, ideal: 320)
+            .listStyle(.inset)
+            .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 460)
         } detail: {
             SummaryView(
                 summary: refreshCoordinator.summary,
@@ -129,8 +323,13 @@ struct ContentView: View {
         }
         .onAppear {
             draft = settingsStore.settings
+            if quotaPrintManager.settings.enabled {
+                draft.liveRefreshEnabled = true
+                settingsStore.settings = draft
+            }
             preferredLanguageCode = draft.preferredLanguageCode
             hasLoadedSettings = true
+            Task { await quotaPrintManager.reloadQueues() }
         }
         .onChange(of: preferredLanguageCode) { _, newValue in
             guard hasLoadedSettings else {
@@ -158,6 +357,43 @@ struct ContentView: View {
 
     private func formatWeight(_ value: Double) -> String {
         value.rounded() == value ? String(Int(value)) : String(format: "%.1f", value)
+    }
+
+    private var receiptEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { quotaPrintManager.settings.enabled },
+            set: { enabled in
+                var updated = quotaPrintManager.settings
+                updated.enabled = enabled
+                quotaPrintManager.settings = updated
+                if enabled {
+                    draft.liveRefreshEnabled = true
+                }
+            }
+        )
+    }
+
+    private func printerTimeBinding(
+        _ keyPath: WritableKeyPath<QuotaPrintSettings, Int>
+    ) -> Binding<Date> {
+        Binding(
+            get: {
+                let minutes = quotaPrintManager.settings[keyPath: keyPath]
+                var components = DateComponents()
+                components.year = 2001
+                components.month = 1
+                components.day = 1
+                components.hour = minutes / 60
+                components.minute = minutes % 60
+                return Calendar.current.date(from: components) ?? Date()
+            },
+            set: { date in
+                let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+                var updated = quotaPrintManager.settings
+                updated[keyPath: keyPath] = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+                quotaPrintManager.settings = updated
+            }
+        )
     }
 }
 
@@ -787,7 +1023,16 @@ struct HealthTimeline: View {
 
 struct AccountRow: View {
     let account: AccountUsage
-    private let rowHeight: CGFloat = 58
+
+    private var rowHeight: CGFloat {
+        let windowCount = [
+            account.usage?.primaryRemainingPercent,
+            account.usage?.weeklyRemainingPercent,
+            account.usage?.fableRemainingPercent
+        ].compactMap { $0 }.count
+        let footerHeight: CGFloat = (quotaResetText != nil || account.error != nil) ? 18 : 0
+        return max(58, CGFloat(windowCount) * 18 + footerHeight + 6)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -856,6 +1101,9 @@ struct AccountRow: View {
         }
         if let weeklyReset = account.usage?.weeklyResetText {
             parts.append("\(L10n.isChinese ? "周" : "week") \(weeklyReset)")
+        }
+        if let fableReset = account.usage?.fableResetText {
+            parts.append("Fable \(fableReset)")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -1134,6 +1382,13 @@ struct UsageStack: View {
             if account.usage?.weeklyRemainingPercent != nil {
                 UsageLine(label: "Week", remainingPercent: account.effectiveWeeklyRemainingPercent, text: account.effectiveWeeklyCompactText)
             }
+            if let fableRemainingPercent = account.usage?.fableRemainingPercent {
+                UsageLine(
+                    label: "Fable",
+                    remainingPercent: fableRemainingPercent,
+                    text: account.usage?.fableCompactText ?? L10n.text("unknown", "未知")
+                )
+            }
         }
     }
 }
@@ -1153,7 +1408,7 @@ struct UsageLine: View {
             Text(label)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 30, alignment: .leading)
+                .frame(width: 38, alignment: .leading)
             InlineUsageBar(remainingPercent: remainingPercent, isMuted: isMuted)
             Text(text)
                 .font(.caption.monospacedDigit())
@@ -1289,6 +1544,8 @@ enum PlanStyle {
             return Color(red: 1.0, green: 0.72, blue: 0.18)
         case "prolite", "pro_lite", "pro-lite":
             return Color(red: 0.94, green: 0.64, blue: 0.22)
+        case "claude", "anthropic":
+            return Color(red: 0.82, green: 0.45, blue: 0.34)
         default:
             return Color(red: 0.26, green: 0.56, blue: 1.0)
         }

@@ -2,7 +2,7 @@
 
 English | [中文](#中文说明)
 
-A small native macOS app and desktop widget for monitoring CLIProxyAPI ChatGPT/Codex account quotas.
+A small native macOS app and desktop widget for monitoring CLIProxyAPI ChatGPT/Codex and Claude account quotas.
 
 It shows a pool overview with account availability, Plus-base remaining capacity, 5-hour quota, weekly quota, plan weights, restore forecasts, and recent request health.
 
@@ -22,7 +22,9 @@ It shows a pool overview with account availability, Plus-base remaining capacity
 - Native SwiftUI macOS app and WidgetKit desktop widgets
 - CLIProxyAPI Management API integration
 - ChatGPT `wham/usage` quota display through `/v0/management/api-call`
+- Experimental Claude OAuth quota display through `/v0/management/api-call`
 - 5-hour and weekly quota bars
+- Optional Fable weekly quota on Claude accounts when returned by Anthropic
 - Small, medium, and large widgets
 - Medium widget with two quota rings and restore timing
 - Large widget with overall health status
@@ -32,6 +34,8 @@ It shows a pool overview with account availability, Plus-base remaining capacity
 - Graphical restore forecast segment on each quota bar
 - Plus / Pro Lite / Pro plan weights
 - Weekly kill-line handling to avoid over-counting accounts with exhausted weekly quota
+- Configurable USB/system-queue thermal receipts at 5h or Week usage milestones
+- Raw ESC/POS output with one bitmap, three feed lines, and at most one cut command per receipt
 - Batched usage fetching with one retry
 - Local-only settings storage
 
@@ -69,6 +73,8 @@ Content-Type: application/json
 CLIProxyAPI replaces `$TOKEN$` with the selected account token.
 The Codex usage request intentionally mirrors the web management panel's quota request headers. In particular, the CLI-style `User-Agent` avoids ChatGPT's browser JavaScript/cookie challenge that can occur with generic browser headers. `Chatgpt-Account-Id` is included when the auth file exposes `id_token.chatgpt_account_id`.
 
+For Claude OAuth accounts, the app forwards `GET https://api.anthropic.com/api/oauth/usage` through the same `/v0/management/api-call` endpoint with `Authorization: Bearer $TOKEN$` and `anthropic-beta: oauth-2025-04-20`. Claude API-key entries are excluded because 5-hour and weekly subscription limits require OAuth. Anthropic's usage endpoint is not a public API contract, so this integration is experimental and surfaces upstream errors instead of treating them as zero quota.
+
 Optionally, the app can also read Xiaomi MiMo Token Plan usage directly from:
 
 ```http
@@ -79,6 +85,14 @@ X-Timezone: Asia/Shanghai
 ```
 
 Paste the platform cookie into the app's `Xiaomi Token Plan` settings section, or use `Capture Cookie` to sign in through the built-in browser and fill it automatically. The app uses only the usage/detail endpoints and does not call the API key endpoints.
+
+## Thermal Quota Receipts
+
+The app can print a receipt whenever pooled 5h or Week usage crosses a configured milestone. Select a macOS printer queue, interval, paper width, monitored windows, partial cut, and optional quiet hours in the app.
+
+Thermal output bypasses driver pagination and is sent in CUPS raw mode as one raster bitmap, three feed lines, and at most one `GS V` cut command. The app serializes receipt submissions and refuses to enqueue a new receipt when the selected queue is stopped, offline, or already has unfinished jobs. This prevents old queued pages or overlapping submissions from producing repeated cuts.
+
+Automatic receipts require live refresh and the app to remain running. The first observation establishes a baseline and does not print retroactively. Missing quota data preserves the current milestone ledger, and an interrupted submission is marked as unknown instead of being retried automatically.
 
 ## Install
 
@@ -107,7 +121,6 @@ Requirements:
 
 - macOS 14 or newer
 - Xcode 16 or newer
-- A signing setup that supports App Groups if you want live widget data
 
 Build from Terminal:
 
@@ -131,7 +144,7 @@ hdiutil create \
   -srcfolder .build/DerivedData/Build/Products/Release/CLIProxyPoolWidget.app \
   -ov \
   -format UDZO \
-  dist/CLIProxyPoolWidget-0.4.1.dmg
+  dist/CLIProxyPoolWidget-0.5.0.dmg
 ```
 
 The app bundle does not include a locally configured Management key by default. The key is stored at runtime in macOS user defaults on the user's machine.
@@ -144,7 +157,7 @@ The widget extension supports three sizes:
 - Medium: left `5h` ring, center restore card, right `Week` ring.
 - Large: quota rows, plan breakdown, and overall health status.
 
-If the app has data but the widget does not, check App Group signing. The app and widget must share the same App Group entitlement, and the provisioning profile must allow it. Free Personal Team signing may not reliably enable App Groups for WidgetKit extensions.
+The current project leaves `PoolWatchConstants.appGroupID` empty and uses its local widget-container bridge. A fork that configures an App Group must add the same entitlement to both targets and use a provisioning profile that allows it.
 
 ## Settings And Privacy
 
@@ -159,10 +172,12 @@ The Management key is currently stored in user defaults for local convenience. F
 
 ## Quota Model
 
-The app shows two quota windows:
+The pool summary shows two common quota windows:
 
 - `5h`: primary short window
 - `Week`: weekly or secondary window
+
+Claude account rows can also show a separate `Fable` weekly window. It is not merged into the ordinary Week balance.
 
 Each quota bar has two visual layers:
 
@@ -204,7 +219,7 @@ MIT License. See [LICENSE](LICENSE).
 
 [English](#cliproxy-pool-watch) | 中文
 
-CLIProxy Pool Watch 是一个简单的原生 macOS 应用和桌面小组件，用来监控 CLIProxyAPI 里的 ChatGPT/Codex 账号额度。
+CLIProxy Pool Watch 是一个简单的原生 macOS 应用和桌面小组件，用来监控 CLIProxyAPI 里的 ChatGPT/Codex 和 Claude 账号额度。
 
 它提供主应用 overview 和 WidgetKit 桌面小组件：账号可用状态、Plus 基准剩余额度、5 小时额度、周额度、套餐权重、下一批恢复预测，以及近期请求健康状态。
 
@@ -223,7 +238,9 @@ CLIProxy Pool Watch 是一个简单的原生 macOS 应用和桌面小组件，�
 - 原生 SwiftUI macOS 应用和 WidgetKit 桌面小组件
 - 接入 CLIProxyAPI Management API
 - 通过 `/v0/management/api-call` 获取 ChatGPT `wham/usage` 额度
+- 通过 `/v0/management/api-call` 实验性获取 Claude OAuth 额度
 - 显示 5 小时额度和周额度
+- Anthropic 返回时显示独立的 Fable 周额度
 - 支持小号、中号、大号桌面小组件
 - 中号小组件显示两个额度圆环和恢复时间
 - 大号小组件显示整体健康状态
@@ -233,6 +250,8 @@ CLIProxy Pool Watch 是一个简单的原生 macOS 应用和桌面小组件，�
 - 每条额度进度条显示图形化恢复预测段
 - Plus / Pro Lite / Pro 套餐权重
 - 支持周额度 kill line，避免周额度耗尽的账号造成总额度虚高
+- 可在 5h 或 Week 用量跨档时，通过 USB/系统打印队列输出热敏额度小票
+- ESC/POS raw 输出固定为一个位图、进纸三行、每张小票最多一次切纸
 - 分批拉取 usage，并在失败时重试一次
 - 设置只保存在本机
 
@@ -270,6 +289,8 @@ Content-Type: application/json
 CLIProxyAPI 会把 `$TOKEN$` 替换为对应账号的 token。
 Codex usage 请求会刻意对齐 Web 管理面板里的 quota 请求头。尤其是 CLI 风格的 `User-Agent`，可以避开 generic browser header 触发的 ChatGPT JavaScript/cookie challenge。只要 auth file 里存在 `id_token.chatgpt_account_id`，应用就会带上 `Chatgpt-Account-Id`。
 
+Claude OAuth 账号会通过同一个 `/v0/management/api-call` 转发 `GET https://api.anthropic.com/api/oauth/usage`，请求头使用 `Authorization: Bearer $TOKEN$` 和 `anthropic-beta: oauth-2025-04-20`。普通 Claude API Key 没有 5 小时和周订阅额度，因此不会走这条请求。Anthropic usage endpoint 不是公开稳定 API，所以当前接入标记为实验性；上游错误会直接显示，不会被误报成额度为零。
+
 应用也可以选择直接读取小米 MiMo Token Plan 用量：
 
 ```http
@@ -280,6 +301,14 @@ X-Timezone: Asia/Shanghai
 ```
 
 把平台 cookie 粘贴到应用的 `Xiaomi Token Plan` 设置区即可，也可以点 `Capture Cookie` 通过内置浏览器登录并自动回填。应用只请求 usage/detail 接口，不会调用 API key 接口。
+
+## 热敏额度小票
+
+池子 5h 或 Week 已用额度跨过配置档位时，App 可以自动打印一张汇报。在设置中可以选择 macOS 打印队列、步进、纸宽、监控窗口、半切以及安静时段。
+
+热敏输出绕过驱动分页，使用 CUPS raw 模式发送：一个位图、进纸三行、最多一个 `GS V` 切纸命令。所有小票提交会串行执行；如果队列已停用、离线或仍有未完成任务，App 会拒绝加入新任务，避免旧分页任务或并发提交再次造成连续切纸。
+
+自动小票依赖实时刷新，并要求 App 保持运行。第一次观测只建立基线，不会补打旧档位；临时缺少额度数据不会清空当前账本；提交过程中断后会标记为“结果未知”，不会自动重复打印。
 
 ## 安装
 
@@ -308,7 +337,6 @@ xattr -dr com.apple.quarantine /Applications/CLIProxyPoolWidget.app
 
 - macOS 14 或更新版本
 - Xcode 16 或更新版本
-- 如果要让桌面小组件读取真实数据，需要支持 App Groups 的签名配置
 
 用 Terminal 构建：
 
@@ -332,7 +360,7 @@ hdiutil create \
   -srcfolder .build/DerivedData/Build/Products/Release/CLIProxyPoolWidget.app \
   -ov \
   -format UDZO \
-  dist/CLIProxyPoolWidget-0.4.1.dmg
+  dist/CLIProxyPoolWidget-0.5.0.dmg
 ```
 
 默认情况下，app bundle 不会包含本地配置过的 Management key。key 是用户运行应用后保存在自己 Mac 的 user defaults 里。
@@ -345,7 +373,7 @@ Widget extension 支持三种尺寸：
 - 中号：左边 `5h` 圆环，中间恢复卡片，右边 `Week` 圆环。
 - 大号：额度、套餐分布、整体健康状态。
 
-如果主应用有数据但桌面小组件没有数据，优先检查 App Group 签名。app 和 widget 必须共享同一个 App Group entitlement，并且 provisioning profile 必须允许这个 App Group。免费 Personal Team 签名可能无法稳定启用 WidgetKit extension 的 App Groups。
+当前项目的 `PoolWatchConstants.appGroupID` 留空，使用本地 widget container bridge。若 fork 后自行配置 App Group，需要为两个 target 添加相同 entitlement，并使用允许该 App Group 的 provisioning profile。
 
 ## 设置与隐私
 
@@ -360,10 +388,12 @@ Widget extension 支持三种尺寸：
 
 ## 额度模型
 
-应用显示两个额度窗口：
+池子汇总显示两个通用额度窗口：
 
 - `5h`：短周期主窗口
 - `Week`：周额度或 secondary window
+
+Claude 账号行还可以显示独立的 `Fable` 周额度；它不会混入普通 Week 汇总。
 
 每条额度条有两层图形：
 

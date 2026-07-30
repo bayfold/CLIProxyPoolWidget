@@ -469,6 +469,13 @@ struct AccountList: View {
                         if account.usage?.weeklyRemainingPercent != nil {
                             WidgetUsageLine(label: "Week", remainingPercent: account.effectiveWeeklyRemainingPercent, text: account.effectiveWeeklyCompactText)
                         }
+                        if let fableRemainingPercent = account.usage?.fableRemainingPercent {
+                            WidgetUsageLine(
+                                label: "Fable",
+                                remainingPercent: fableRemainingPercent,
+                                text: account.usage?.fableCompactText ?? L10n.text("unknown", "未知")
+                            )
+                        }
                     }
                 }
             }
@@ -758,7 +765,7 @@ struct WidgetUsageLine: View {
             Text(label)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .leading)
+                .frame(width: 36, alignment: .leading)
             WidgetMiniBar(remainingPercent: remainingPercent, isMuted: isMuted)
             Text(text)
                 .font(.caption2.monospacedDigit())
@@ -825,6 +832,8 @@ enum WidgetPlanStyle {
             return Color(red: 1.0, green: 0.72, blue: 0.18)
         case "prolite", "pro_lite", "pro-lite":
             return Color(red: 0.94, green: 0.64, blue: 0.22)
+        case "claude", "anthropic":
+            return Color(red: 0.82, green: 0.45, blue: 0.34)
         default:
             return Color(red: 0.26, green: 0.56, blue: 1.0)
         }

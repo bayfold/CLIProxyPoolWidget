@@ -5,18 +5,27 @@ import WidgetKit
 @main
 struct CLIProxyPoolWidgetApp: App {
     @StateObject private var settingsStore: SettingsStore
+    @StateObject private var quotaPrintManager: QuotaPrintManager
     @StateObject private var refreshCoordinator: PoolRefreshCoordinator
 
     init() {
         let settingsStore = SettingsStore.shared
+        let quotaPrintManager = QuotaPrintManager()
         _settingsStore = StateObject(wrappedValue: settingsStore)
-        _refreshCoordinator = StateObject(wrappedValue: PoolRefreshCoordinator(settingsStore: settingsStore))
+        _quotaPrintManager = StateObject(wrappedValue: quotaPrintManager)
+        _refreshCoordinator = StateObject(
+            wrappedValue: PoolRefreshCoordinator(
+                settingsStore: settingsStore,
+                quotaPrintManager: quotaPrintManager
+            )
+        )
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(settingsStore)
+                .environmentObject(quotaPrintManager)
                 .environmentObject(refreshCoordinator)
                 .frame(minWidth: 620, minHeight: 520)
         }
@@ -33,12 +42,14 @@ final class PoolRefreshCoordinator: ObservableObject {
     @Published var lastMessage: String?
 
     private let settingsStore: SettingsStore
+    private let quotaPrintManager: QuotaPrintManager
     private var refreshTimer: Timer?
     private var settingsSubscription: AnyCancellable?
     private var backgroundActivity: NSObjectProtocol?
 
-    init(settingsStore: SettingsStore) {
+    init(settingsStore: SettingsStore, quotaPrintManager: QuotaPrintManager) {
         self.settingsStore = settingsStore
+        self.quotaPrintManager = quotaPrintManager
         self.summary = SettingsStore.loadSummaryForWidget() ?? .placeholder
         settingsSubscription = settingsStore.$settings
             .sink { [weak self] settings in
@@ -125,6 +136,7 @@ final class PoolRefreshCoordinator: ObservableObject {
             }
             settingsStore.syncSummaryToWidget(loaded)
             WidgetCenter.shared.reloadAllTimelines()
+            await quotaPrintManager.process(summary: loaded)
         }
     }
 

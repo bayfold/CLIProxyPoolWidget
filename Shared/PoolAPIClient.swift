@@ -5,6 +5,7 @@ enum PoolAPIError: LocalizedError {
     case xiaomiNotConfigured
     case invalidBaseURL
     case chatGPTChallenge(Int)
+    case unsupportedQuotaProvider(String)
     case httpStatus(Int, String)
     case invalidResponse
 
@@ -20,6 +21,10 @@ enum PoolAPIError: LocalizedError {
             return L10n.isChinese
                 ? "ChatGPT 阻止了 API 调用：需要 JavaScript/Cookie 验证（HTTP \(status)）。"
                 : "ChatGPT blocked api-call: JavaScript/cookie challenge (HTTP \(status))."
+        case let .unsupportedQuotaProvider(provider):
+            return L10n.isChinese
+                ? "暂不支持 \(provider.isEmpty ? "该提供商" : provider) 的订阅额度。"
+                : "Subscription quota is not supported for \(provider.isEmpty ? "this provider" : provider)."
         case let .httpStatus(status, body):
             return "HTTP \(status): \(body.prefix(160))"
         case .invalidResponse:
@@ -138,6 +143,51 @@ struct PoolAPIClient {
             throw PoolAPIError.httpStatus(http.statusCode, rawBody)
         }
         throw PoolAPIError.invalidResponse
+    }
+
+    func fetchAnthropicUsage(authIndex: String) async throws -> UsageSnapshot {
+        let url = try managementURL(path: "/v0/management/api-call")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyManagementHeaders(to: &request)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload = APICallRequest(
+            authIndex: authIndex,
+            method: "GET",
+            url: "https://api.anthropic.com/api/oauth/usage",
+            header: [
+                "Authorization": "Bearer $TOKEN$",
+                "Content-Type": "application/json",
+                "anthropic-beta": "oauth-2025-04-20"
+            ],
+            data: nil
+        )
+        request.httpBody = try JSONEncoder().encode(payload)
+
+        let (data, urlResponse) = try await session.data(for: request)
+        guard let http = urlResponse as? HTTPURLResponse else {
+            throw PoolAPIError.invalidResponse
+        }
+
+        let rawBody = String(data: data, encoding: .utf8) ?? ""
+        if let response = apiCallEnvelope(from: data) {
+            guard (200..<300).contains(response.statusCode) else {
+                throw PoolAPIError.httpStatus(response.statusCode, response.body)
+            }
+            guard let snapshot = quotaSnapshot(from: response.body) else {
+                throw PoolAPIError.invalidResponse
+            }
+            return snapshot
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            throw PoolAPIError.httpStatus(http.statusCode, rawBody)
+        }
+        guard let snapshot = quotaSnapshot(from: rawBody) else {
+            throw PoolAPIError.invalidResponse
+        }
+        return snapshot
     }
 
     func fetchXiaomiTokenPlan() async throws -> XiaomiTokenPlanSnapshot {
