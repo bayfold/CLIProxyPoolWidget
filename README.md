@@ -99,6 +99,48 @@ A full signed app/widget archive still requires Xcode and local signing/app grou
 configuration. Command Line Tools can validate the Swift sources but do not
 produce the Xcode archive.
 
+## Automated Releases
+
+The `Release macOS app` GitHub Actions workflow builds the app and embedded widget
+for both Apple Silicon and Intel, runs the synthetic regression tests, and publishes
+DMG, app ZIP and SHA-256 checksum assets when a `vMAJOR.MINOR.PATCH` tag is pushed.
+For example, after committing the release changes:
+
+```sh
+git tag v0.5.1
+git push origin v0.5.1
+```
+
+You can also run the workflow manually with an existing version tag. Leave
+`publish` unchecked to build and download Actions artifacts without creating a
+release. The `build_method` choice selects the Swift compiler fallback (default)
+or the full Xcode project build. Publishing an existing release fails rather than replacing its assets.
+The tag supplies the app/widget version; the workflow run number supplies the
+bundle build number. Builds use the Xcode 16.4 toolchain on `macos-15` and need no Apple signing
+secrets. These are community builds with ad-hoc signatures, without Apple
+notarization; the unsigned-build installation notes below still apply.
+
+Run the same release packaging locally with full Xcode:
+
+```sh
+scripts/test.sh
+RELEASE_VERSION=0.5.0 scripts/build-release.sh
+```
+
+For a Mac with only Command Line Tools, the local fallback compiles the same Swift
+sources for both architectures and packages the app/widget directly. It generates
+an `.icns` icon instead of Xcode's compiled asset catalog. Select a compatible SDK
+if your default SDK lacks the SwiftUI macro plugin:
+
+```sh
+MACOS_SDK_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX15.2.sdk \
+  RELEASE_VERSION=0.5.0 scripts/build-release.sh --command-line-tools
+```
+
+Artifacts are written to `dist/`. Packaging does not launch or install the app,
+read user settings, or contact a provider. Both build paths are available in CI; tag pushes use the compiler fallback. To publish the workflow itself, commit and push `.github/workflows/`,
+`scripts/`, and the shared Xcode scheme alongside this documentation.
+
 ## How It Works
 
 The app uses the same CLIProxyAPI Management API flow as the web control panel.

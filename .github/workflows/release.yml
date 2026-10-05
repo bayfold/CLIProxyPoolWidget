@@ -1,0 +1,105 @@
+name: Release macOS app
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to build (for example v0.5.0)'
+        required: true
+        type: string
+      build_method:
+        description: 'Build with Xcode or directly with the Swift compiler'
+        required: true
+        default: command-line-tools
+        type: choice
+        options:
+          - command-line-tools
+          - xcode
+      publish:
+        description: 'Publish a GitHub Release; otherwise upload build artifacts only'
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      BUILD_METHOD: ${{ inputs.build_method || 'command-line-tools' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate version tag and checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected vMAJOR.MINOR.PATCH'; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]]
+          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+      - name: Select Xcode 16.4
+        run: sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python regression dependencies
+        run: python3 -m pip install -r requirements.txt
+      - name: Run synthetic regressions
+        run: scripts/test.sh
+      - name: Build universal app, widget, DMG and ZIP
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        shell: bash
+        run: |
+          if [[ "$BUILD_METHOD" == command-line-tools ]]; then
+            scripts/build-release.sh --command-line-tools
+          else
+            scripts/build-release.sh
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Publish release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check ./*.sha256
+          printf '%s\n' 'Universal macOS 14+ build for Apple Silicon and Intel.' '' \
+            'Includes the app and WidgetKit extension. Community build with ad-hoc signatures; not Apple notarized.' \
+            'Download the DMG or app ZIP. SHA-256 checksums are included.' > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" ./*.dmg ./*.app.zip ./*.sha256 \
+            --verify-tag --title "Bayfold Pool Watch $RELEASE_TAG" \
+            --generate-notes --notes-file "$RUNNER_TEMP/release-notes.md"
