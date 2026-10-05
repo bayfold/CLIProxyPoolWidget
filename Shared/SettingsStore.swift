@@ -81,7 +81,7 @@ final class SettingsStore: ObservableObject {
     nonisolated static func saveSummaryForWidget(_ summary: PoolSummary) -> Bool {
         // Company identity is supplied by Serve on each request. Never reuse a disk
         // snapshot across an identity change that the app cannot observe.
-        guard summary.companyCapacity == nil else { clearSummaryForWidget(); return true }
+        guard summary.companySubscriptions == nil else { clearSummaryForWidget(); return true }
         guard let data = try? JSONEncoder().encode(summary) else {
             return false
         }

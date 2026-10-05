@@ -8,7 +8,7 @@ struct PoolSummaryService {
         if client.settings.source == .companyGateway {
             do {
                 var summary = PoolSummary.placeholder
-                summary.companyCapacity = try await client.fetchCompanyCapacity()
+                summary.companySubscriptions = try await client.fetchCompanySubscriptions()
                 return summary
             } catch {
                 return PoolSummary.companyError(error.localizedDescription)

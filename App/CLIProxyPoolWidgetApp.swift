@@ -31,7 +31,7 @@ struct CLIProxyPoolWidgetApp: App {
         }
         .windowStyle(.titleBar)
         MenuBarExtra("Company subscriptions", systemImage: "chart.bar", isInserted: .constant(settingsStore.settings.source == .companyGateway)) {
-            if let capacity = refreshCoordinator.summary.companyCapacity {
+            if let capacity = refreshCoordinator.summary.companySubscriptions {
                 CompanySubscriptionsView(capacity: capacity, compact: true).frame(width: 360)
             } else {
                 Text(refreshCoordinator.summary.errorMessage ?? "Open the app to configure company-gateway.")
@@ -100,8 +100,6 @@ final class PoolRefreshCoordinator: ObservableObject {
             ignoredAPIKeyIDs: settings.ignoredAPIKeyIDs
         )
         result.source = settings.source
-        result.companyProvider = settings.companyProvider
-        result.companyModel = settings.companyModel.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.source == .companyGateway {
             result.managementKey = ""
             result.xiaomiCookie = ""

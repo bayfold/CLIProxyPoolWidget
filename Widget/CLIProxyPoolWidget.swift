@@ -103,7 +103,7 @@ final class SendableCompletion<Value>: @unchecked Sendable {
 
 private extension PoolSummary {
     func adjustingResetHints(for date: Date) -> PoolSummary {
-        if companyCapacity != nil { return self }
+        if companySubscriptions != nil { return self }
         return PoolSummary(
             generatedAt: generatedAt,
             totalAccounts: totalAccounts,
@@ -146,27 +146,29 @@ struct PoolWidgetView: View {
 
     var body: some View {
         if !entry.settingsConfigured {
-            WidgetMessageView(title: L10n.text("CLIProxy Pool", "CLIProxy 池"), message: L10n.text("Open the app to configure the pool URL and key.", "打开应用以配置池地址和密钥。"), systemImage: "gearshape")
+            WidgetMessageView(title: L10n.text("CLIProxy Pool", "CLIProxy 池"), message: L10n.text("Open the app to configure the connection.", "打开应用以配置连接。"), systemImage: "gearshape")
         } else if let error = entry.summary.errorMessage {
             WidgetMessageView(title: L10n.text("Fetch failed", "获取失败"), message: error, systemImage: "exclamationmark.triangle")
-        } else if let capacity = entry.summary.companyCapacity {
+        } else if let capacity = entry.summary.companySubscriptions {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Company subscriptions").font(.headline)
-                Text("\(capacity.provider) · \(capacity.model)").font(.caption2)
+                Text(capacity.providers.joined(separator: " · ")).font(.caption2)
                 Text("Personal \(capacity.personal.count) · Shared \(capacity.shared.count)").font(.caption)
                 Text("Pool subscriptions: \(capacity.accounts.count)").font(.caption)
-                if capacity.mode == "off" { Text("Observation disabled · quota unknown").font(.caption2) }
-                ForEach(Array(capacity.accounts.prefix(family == .systemSmall ? 1 : 4))) { account in
-                    HStack {
-                        Text("\(account.ownership_tier == "own" ? "Personal" : "Shared") \(account.id.prefix(6))").font(.caption2)
-                        Spacer()
-                        if let headroom = account.usableHeadroom(at: entry.date) {
-                            Text(String(format: "%.0f%% left", headroom * 100)).font(.caption2)
-                        } else { Text("Unknown / \(account.freshness)").font(.caption2) }
+                ForEach(Array(capacity.accounts.prefix(family == .systemSmall ? 1 : (family == .systemLarge ? 4 : 2)))) { account in
+                    Text("\(account.provider) · \(account.ownership_tier == "own" ? "Personal" : "Shared")").font(.caption2)
+                    ForEach(Array(account.windows.prefix(family == .systemSmall ? 2 : 3))) { window in
+                        HStack {
+                            Text(window.displayName).font(.caption2)
+                            if let remaining = account.usableRemaining(window, at: entry.date) {
+                                Text(String(format: "%.0f%% left", remaining * 100)).font(.caption2)
+                            } else { Text("Unknown").font(.caption2) }
+                            if let reset = window.reset_at {
+                                Text(Date(timeIntervalSince1970: reset), style: .relative).font(.caption2)
+                            }
+                        }
                     }
-                    if let reset = account.limiting_reset {
-                        Text("Limiting reset \(Date(timeIntervalSince1970: reset), style: .relative)").font(.caption2).foregroundStyle(.secondary)
-                    }
+                    if account.windows.isEmpty { Text(account.freshness).font(.caption2) }
                 }
                 Spacer(minLength: 0)
             }.containerBackground(.background, for: .widget)

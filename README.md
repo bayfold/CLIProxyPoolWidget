@@ -51,31 +51,36 @@ widget bridge directory. It does not migrate or overwrite an installed upstream
 app's settings, credentials, or snapshots. Upstream license notices are preserved.
 
 Choose **Company subscriptions** as the source and enter your company-gateway
-HTTPS origin, provider (`claude` or `codex`), and an exact allowed model ID. Connect
+HTTPS origin. Providers and subscription quota windows are discovered automatically;
+there is no provider picker or model ID to enter. Connect
 through Tailscale from a member-owned device; Serve supplies the member identity.
 Tagged devices, CI leases, and model access keys cannot read this view. No gateway
 management key, provider token, browser cookie, or standalone personal account is
-needed. Saving incomplete company settings points to the missing URL or model ID;
+needed. Saving incomplete company settings points to the missing gateway URL;
 it never asks for a management key.
 
-The app, menu bar, and desktop widget use only the passive member-scoped
-`GET /api/v1/capacity?provider=...&model=...` projection. Personal means subscriptions
-you own in company-gateway. The permitted pool includes these and subscriptions
-explicitly shared with you, once each. This is an access count, not a claim that
-every subscription is currently eligible for native routing. Counts and individual limiting headroom are
-shown; percentages from different subscriptions are never added together. Quota
-observation disabled on the gateway, incomplete/stale observations, and a reset
-awaiting a new observation remain unknown. A reset countdown never refills quota.
+The app, menu bar, and desktop widget read `GET /api/v1/subscriptions` with
+Tailscale member identity. The gateway discovers your owned subscriptions and
+permitted shared subscriptions from SQLite, then reads the same fixed Claude
+OAuth and Codex WHAM usage APIs as standalone mode through CLIProxyAPI. Its
+shared one-minute quota cache coalesces reads and respects provider backoff.
+Personal subscriptions are accounts you own; your shared accounts appear once.
+Private foreign accounts are excluded, including for admins in this overview.
+Providers are grouped automatically. Each subscription shows its available quota
+windows and reset times; percentages from different subscriptions are not summed.
 
-Company mode never invokes upstream provider quota calls, account management,
-reset grants, Xiaomi requests, or receipt printing. Its network session has no
-cookie/credential storage or HTTP cache and refuses redirects. Authentication
-failures show a Tailscale/member error. Settings changes cancel pending work,
-clear the displayed summary, and reject responses from earlier settings versions.
-Company snapshots are deliberately not saved to disk or reused by WidgetKit:
-Serve identity can change independently of app settings. A fresh passive read is
-required for each new widget timeline. Already displayed OS widget timelines may
-remain visible until WidgetKit refreshes them; expired observations render unknown.
+Only the gateway holds the management key, and only CLIProxyAPI holds provider
+tokens. The widget receives public account IDs, labels and numeric quota windows,
+never native credential IDs, provider tokens or raw authenticated response bodies.
+Company mode has no reset, credit-redemption, management, inference or printing
+operations. Missing, unsupported, failed and stale quota are shown as unknown.
+Passing a reset time does not invent a refill. The gateway's existing model-specific
+capacity API remains available for routing diagnostics, independently of this view.
+
+Company summaries are not persisted. A fresh authenticated read supplies member
+identity for every refresh, and settings changes cancel/discard old loads. The
+widget receives only redacted settings without the standalone management key or
+Xiaomi cookie. OS-managed timelines remain visible until WidgetKit refreshes them.
 
 Existing standalone CLIProxyAPI configuration remains supported. Existing settings
 without a source field migrate to standalone mode. Its management credentials and
@@ -84,8 +89,8 @@ weighted quota views retain the upstream behavior.
 Synthetic company regression (no real service or user state):
 
 ```sh
-swiftc Shared/PoolModels.swift Shared/UsageParser.swift Shared/PoolAPIClient.swift Shared/PoolSummaryService.swift Tests/CompanyCapacityRegression.swift -o /tmp/company-capacity-test
-/tmp/company-capacity-test
+swiftc Shared/PoolModels.swift Shared/UsageParser.swift Shared/PoolAPIClient.swift Shared/PoolSummaryService.swift Tests/CompanySubscriptionsRegression.swift -o /tmp/company-subscriptions-test
+/tmp/company-subscriptions-test
 ```
 
 Full app and widget Swift source typechecking (validated with the installed

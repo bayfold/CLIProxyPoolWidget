@@ -62,8 +62,6 @@ enum PoolSource: String, Codable, CaseIterable { case standalone, companyGateway
 
 struct PoolSettings: Codable, Equatable {
     var source: PoolSource = .standalone
-    var companyProvider: String = "claude"
-    var companyModel: String = ""
     var baseURL: String
     var managementKey: String
     var refreshMinutes: Int
@@ -100,20 +98,14 @@ struct PoolSettings: Codable, Equatable {
 
     var isConfigured: Bool {
         !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        (source == .companyGateway ? !companyModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : !managementKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        (source == .companyGateway || !managementKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     var configurationPrompt: String {
         if source == .companyGateway {
-            if baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return L10n.text(
-                    "Enter your company-gateway HTTPS URL over Tailscale.",
-                    "请填写通过 Tailscale 访问的 company-gateway HTTPS 地址。"
-                )
-            }
             return L10n.text(
-                "Enter an allowed model ID for the selected company provider.",
-                "请填写所选公司提供商允许使用的模型 ID。"
+                "Enter your company-gateway HTTPS URL over Tailscale.",
+                "请填写通过 Tailscale 访问的 company-gateway HTTPS 地址。"
             )
         }
         return L10n.text(
@@ -141,7 +133,7 @@ struct PoolSettings: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case source, companyProvider, companyModel
+        case source
         case baseURL
         case managementKey
         case refreshMinutes
@@ -196,8 +188,6 @@ struct PoolSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         source = try container.decodeIfPresent(PoolSource.self, forKey: .source) ?? .standalone
-        companyProvider = try container.decodeIfPresent(String.self, forKey: .companyProvider) ?? "claude"
-        companyModel = try container.decodeIfPresent(String.self, forKey: .companyModel) ?? ""
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? Self.empty.baseURL
         managementKey = try container.decodeIfPresent(String.self, forKey: .managementKey) ?? ""
         refreshMinutes = try container.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? Self.empty.refreshMinutes
@@ -924,7 +914,7 @@ struct PoolSummary: Codable, Hashable {
     let xiaomiTokenPlan: XiaomiTokenPlanSnapshot?
     let errorMessage: String?
 
-    var companyCapacity: CompanyCapacity? = nil
+    var companySubscriptions: CompanySubscriptions? = nil
 
     var weeklyRemainingPercent: Double {
         weeklyRemainingUnits * 100
@@ -1028,43 +1018,50 @@ enum DateParser {
     }
 }
 
-// Passive, member-scoped company projection. No provider credentials or native IDs.
-struct CompanyCapacity: Codable, Hashable {
+// Member-scoped subscription usage. Tokens and native credential IDs stay on the server.
+struct CompanySubscriptions: Codable, Hashable {
     let member_id: String
-    let provider: String
-    let model: String
-    let mode: String
-    let advisory: Bool
-    let accounts: [CompanyCapacityAccount]
-    var personal: [CompanyCapacityAccount] { accounts.filter { $0.ownership_tier == "own" } }
-    var shared: [CompanyCapacityAccount] { accounts.filter { $0.ownership_tier == "shared" } }
+    let accounts: [CompanySubscriptionAccount]
+    var personal: [CompanySubscriptionAccount] { accounts.filter { $0.ownership_tier == "own" } }
+    var shared: [CompanySubscriptionAccount] { accounts.filter { $0.ownership_tier == "shared" } }
+    var providers: [String] { Array(Set(accounts.map(\.provider))).sorted() }
 }
-struct CompanyCapacityAccount: Codable, Hashable, Identifiable {
+struct CompanySubscriptionAccount: Codable, Hashable, Identifiable {
     let id: String
+    let provider: String
+    let label: String
     let ownership_tier: String
     let freshness: String
     let observed_at: Double?
-    let headroom: Double?
-    let limiting_reset: Double?
-    let scoreable: Bool
-    let windows: [CompanyCapacityWindow]
-    func usableHeadroom(at now: Date) -> Double? {
-        guard freshness == "fresh", scoreable,
-              let observed_at, now.timeIntervalSince1970 - observed_at <= 300,
-              observed_at <= now.timeIntervalSince1970 + 30,
-              !windows.isEmpty,
-              windows.allSatisfy({ $0.usableRemaining(at: now) != nil }),
-              let headroom, headroom.isFinite, (0...1).contains(headroom) else { return nil }
-        return headroom
+    let windows: [SubscriptionQuotaWindow]
+    var displayName: String { label.isEmpty ? "Subscription \(id.prefix(8))" : label }
+    func usableRemaining(_ window: SubscriptionQuotaWindow, at now: Date) -> Double? {
+        guard freshness == "fresh" else { return nil }
+        return window.usableRemaining(at: now)
     }
 }
-struct CompanyCapacityWindow: Codable, Hashable, Identifiable {
+struct SubscriptionQuotaWindow: Codable, Hashable, Identifiable {
     let id: String
     let resource: String
     let duration_seconds: Int?
     let remaining_fraction: Double
     let reset_at: Double?
     let observed_at: Double
+    var displayName: String {
+        switch id {
+        case "five_hour": return "5h"
+        case "seven_day": return "7d"
+        case "seven_day_opus": return "7d · Opus"
+        case "seven_day_sonnet": return "7d · Sonnet"
+        default:
+            if let duration_seconds {
+                if duration_seconds == 604800 { return "7d" }
+                return "\(duration_seconds / 3600)h"
+            }
+            if id.hasPrefix("weekly_") { return "7d" }
+            return id.replacingOccurrences(of: "_", with: " ")
+        }
+    }
     func usableRemaining(at now: Date) -> Double? {
         guard remaining_fraction.isFinite, (0...1).contains(remaining_fraction),
               now.timeIntervalSince1970 - observed_at <= 300,

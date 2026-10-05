@@ -22,14 +22,7 @@ struct ContentView: View {
                     TextField(L10n.text("Pool URL", "池地址"), text: $draft.baseURL)
                         .textFieldStyle(.roundedBorder)
                     if draft.source == .companyGateway {
-                        Picker("Provider", selection: $draft.companyProvider) {
-                            Text("Claude").tag("claude")
-                            Text("Codex").tag("codex")
-                        }
-                        TextField(L10n.text("Allowed model ID (required)", "允许的模型 ID（必填）"), text: $draft.companyModel)
-                        Text(L10n.text("Use a model ID your company account is allowed to access for this provider.", "请填写您的公司账号允许访问的所选提供商模型 ID。"))
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text("Use your company-gateway HTTPS URL over Tailscale. Personal subscriptions are accounts you own in the gateway. No management key is required.").font(.caption).foregroundStyle(.secondary)
+                        Text("Use your company-gateway HTTPS URL over Tailscale. Personal subscriptions are accounts you own in the gateway. Providers and quota windows are discovered automatically. No management key or model ID is required.").font(.caption).foregroundStyle(.secondary)
                     } else {
                         SecureField(L10n.text("Management key", "管理密钥"), text: $draft.managementKey)
                             .textFieldStyle(.roundedBorder)
@@ -610,7 +603,7 @@ struct SummaryView: View {
                 }
             }
 
-            if let capacity = summary.companyCapacity {
+            if let capacity = summary.companySubscriptions {
                 CompanySubscriptionsView(capacity: capacity, compact: false)
             } else if let error = summary.errorMessage,
                summary.xiaomiTokenPlan == nil,
@@ -1599,19 +1592,20 @@ extension PoolSummary {
 
 
 struct CompanySubscriptionsView: View {
-    let capacity: CompanyCapacity
+    let capacity: CompanySubscriptions
     let compact: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Company subscriptions").font(.headline)
-            Text("\(capacity.provider) · \(capacity.model)").font(.caption).foregroundStyle(.secondary)
+            Text(capacity.providers.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
             Text("Personal: \(capacity.personal.count) · Shared: \(capacity.shared.count) · Pool subscriptions: \(capacity.accounts.count)")
                 .font(.caption)
-            if capacity.mode == "off" {
-                Text("Quota observation is disabled; headroom is unknown.").font(.caption).foregroundStyle(.secondary)
+            ForEach(capacity.providers, id: \.self) { provider in
+                Text(provider == "codex" ? "ChatGPT / Codex" : provider.capitalized).font(.subheadline.bold())
+                CompanySubscriptionSection(title: "Personal subscriptions", accounts: capacity.personal.filter { $0.provider == provider }, limit: compact ? 3 : 64)
+                CompanySubscriptionSection(title: "Shared subscriptions", accounts: capacity.shared.filter { $0.provider == provider }, limit: compact ? 3 : 64)
             }
-            CompanySubscriptionSection(title: "Personal subscriptions", accounts: capacity.personal, limit: compact ? 3 : 64)
-            CompanySubscriptionSection(title: "Shared subscriptions", accounts: capacity.shared, limit: compact ? 3 : 64)
+            if capacity.accounts.isEmpty { Text("No subscriptions are available to this member.").font(.caption) }
             Text("Available pool includes personal and shared accounts once. Percentages are per subscription; they are not added together.")
                 .font(.caption2).foregroundStyle(.secondary)
         }.padding()
@@ -1619,7 +1613,7 @@ struct CompanySubscriptionsView: View {
 }
 struct CompanySubscriptionSection: View {
     let title: String
-    let accounts: [CompanyCapacityAccount]
+    let accounts: [CompanySubscriptionAccount]
     let limit: Int
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1628,18 +1622,14 @@ struct CompanySubscriptionSection: View {
             ForEach(Array(accounts.prefix(limit))) { account in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
-                        Text("Subscription \(account.id.prefix(8))").font(.caption)
+                        Text("\(account.provider) · \(account.displayName)").font(.caption)
                         Spacer()
-                        if let fraction = account.usableHeadroom(at: Date()) {
-                            Text(String(format: "%.0f%% limiting headroom", fraction * 100)).font(.caption)
-                        } else {
-                            Text(account.freshness == "fresh" ? "Unknown" : account.freshness.replacingOccurrences(of: "_", with: " ")).font(.caption).foregroundStyle(.secondary)
-                        }
+                        Text(account.freshness).font(.caption).foregroundStyle(.secondary)
                     }
                     ForEach(account.windows) { window in
                         HStack {
-                            Text(window.id).font(.caption2)
-                            if let remaining = window.usableRemaining(at: Date()) {
+                            Text(window.displayName).font(.caption2)
+                            if let remaining = account.usableRemaining(window, at: Date()) {
                                 Text(String(format: "%.0f%% left", remaining * 100)).font(.caption2)
                             } else { Text("Unknown / awaiting observation").font(.caption2) }
                             if let reset = window.reset_at {
