@@ -1603,7 +1603,7 @@ struct CompanySubscriptionsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Company subscriptions").font(.headline)
             Text("\(capacity.provider) · \(capacity.model)").font(.caption).foregroundStyle(.secondary)
-            Text("Personal: \(capacity.personal.count) · Shared: \(capacity.shared.count) · Available pool: \(capacity.accounts.count)")
+            Text("Personal: \(capacity.personal.count) · Shared: \(capacity.shared.count) · Pool subscriptions: \(capacity.accounts.count)")
                 .font(.caption)
             if capacity.mode == "off" {
                 Text("Quota observation is disabled; headroom is unknown.").font(.caption).foregroundStyle(.secondary)

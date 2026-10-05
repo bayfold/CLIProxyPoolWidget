@@ -154,7 +154,7 @@ struct PoolWidgetView: View {
                 Text("Company subscriptions").font(.headline)
                 Text("\(capacity.provider) · \(capacity.model)").font(.caption2)
                 Text("Personal \(capacity.personal.count) · Shared \(capacity.shared.count)").font(.caption)
-                Text("Available pool: \(capacity.accounts.count)").font(.caption)
+                Text("Pool subscriptions: \(capacity.accounts.count)").font(.caption)
                 if capacity.mode == "off" { Text("Observation disabled · quota unknown").font(.caption2) }
                 ForEach(Array(capacity.accounts.prefix(family == .systemSmall ? 1 : 4))) { account in
                     HStack {

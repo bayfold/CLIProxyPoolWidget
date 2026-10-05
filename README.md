@@ -55,8 +55,9 @@ needed.
 
 The app, menu bar, and desktop widget use only the passive member-scoped
 `GET /api/v1/capacity?provider=...&model=...` projection. Personal means subscriptions
-you own in company-gateway. The available pool includes these and subscriptions
-explicitly shared with you, once each. Counts and individual limiting headroom are
+you own in company-gateway. The permitted pool includes these and subscriptions
+explicitly shared with you, once each. This is an access count, not a claim that
+every subscription is currently eligible for native routing. Counts and individual limiting headroom are
 shown; percentages from different subscriptions are never added together. Quota
 observation disabled on the gateway, incomplete/stale observations, and a reset
 awaiting a new observation remain unknown. A reset countdown never refills quota.
