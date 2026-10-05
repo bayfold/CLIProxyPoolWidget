@@ -43,7 +43,7 @@ It shows a pool overview with account availability, Plus-base remaining capacity
 
 [Management UI](https://github.com/bayfold/Cli-Proxy-API-Management-Center) ·
 [Component specification](https://github.com/bayfold/Cli-Proxy-API-Management-Center/blob/company/docs/company-gateway.md) ·
-[GitHub Actions OIDC specification](https://github.com/bayfold/Cli-Proxy-API-Management-Center/blob/company/docs/ci-oidc.md) (implemented; host workload configuration required)
+[GitHub Actions OIDC specification](https://github.com/bayfold/Cli-Proxy-API-Management-Center/blob/company/docs/ci-oidc.md) (implemented; admin UI manages connected repositories and workflow trust)
 
 This fork uses separate `com.bayfold.CLIProxyPoolWidget` app and
 `com.bayfold.CLIProxyPoolWidget.WidgetExtension` bundle identifiers and a separate
