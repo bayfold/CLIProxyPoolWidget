@@ -46,6 +46,10 @@ struct PoolProvider: TimelineProvider {
         let timelineCompletion = SendableCompletion(completion)
         Task {
             let summary = await PoolSummaryService(client: PoolAPIClient(settings: settings)).loadSummary()
+            guard SettingsStore.loadForWidget() == settings else {
+                timelineCompletion.call(makeTimeline(summary: .companyError("Settings changed; refresh the widget."), settings: SettingsStore.loadForWidget()))
+                return
+            }
             if summary.errorMessage == nil {
                 SettingsStore.saveSummaryForWidget(summary)
             }
@@ -57,6 +61,10 @@ struct PoolProvider: TimelineProvider {
         let completionBox = SendableCompletion(completion)
         Task {
             let summary = await PoolSummaryService(client: PoolAPIClient(settings: settings)).loadSummary()
+            guard SettingsStore.loadForWidget() == settings else {
+                completionBox.call(PoolEntry(date: Date(), summary: .companyError("Settings changed; refresh the widget."), settingsConfigured: true))
+                return
+            }
             if summary.errorMessage == nil {
                 SettingsStore.saveSummaryForWidget(summary)
             }
@@ -95,7 +103,8 @@ final class SendableCompletion<Value>: @unchecked Sendable {
 
 private extension PoolSummary {
     func adjustingResetHints(for date: Date) -> PoolSummary {
-        PoolSummary(
+        if companyCapacity != nil { return self }
+        return PoolSummary(
             generatedAt: generatedAt,
             totalAccounts: totalAccounts,
             availableAccounts: availableAccounts,
@@ -140,6 +149,27 @@ struct PoolWidgetView: View {
             WidgetMessageView(title: L10n.text("CLIProxy Pool", "CLIProxy 池"), message: L10n.text("Open the app to configure the pool URL and key.", "打开应用以配置池地址和密钥。"), systemImage: "gearshape")
         } else if let error = entry.summary.errorMessage {
             WidgetMessageView(title: L10n.text("Fetch failed", "获取失败"), message: error, systemImage: "exclamationmark.triangle")
+        } else if let capacity = entry.summary.companyCapacity {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Company subscriptions").font(.headline)
+                Text("\(capacity.provider) · \(capacity.model)").font(.caption2)
+                Text("Personal \(capacity.personal.count) · Shared \(capacity.shared.count)").font(.caption)
+                Text("Available pool: \(capacity.accounts.count)").font(.caption)
+                if capacity.mode == "off" { Text("Observation disabled · quota unknown").font(.caption2) }
+                ForEach(Array(capacity.accounts.prefix(family == .systemSmall ? 1 : 4))) { account in
+                    HStack {
+                        Text("\(account.ownership_tier == "own" ? "Personal" : "Shared") \(account.id.prefix(6))").font(.caption2)
+                        Spacer()
+                        if let headroom = account.usableHeadroom(at: entry.date) {
+                            Text(String(format: "%.0f%% left", headroom * 100)).font(.caption2)
+                        } else { Text("Unknown / \(account.freshness)").font(.caption2) }
+                    }
+                    if let reset = account.limiting_reset {
+                        Text("Limiting reset \(Date(timeIntervalSince1970: reset), style: .relative)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }.containerBackground(.background, for: .widget)
         } else {
             switch family {
             case .systemSmall:

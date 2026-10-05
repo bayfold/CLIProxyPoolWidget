@@ -375,7 +375,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zipwuu.CLIProxyPoolWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayfold.CLIProxyPoolWidget;
 				PRODUCT_NAME = CLIProxyPoolWidget;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
@@ -397,7 +397,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zipwuu.CLIProxyPoolWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayfold.CLIProxyPoolWidget;
 				PRODUCT_NAME = CLIProxyPoolWidget;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
@@ -416,7 +416,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 0.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zipwuu.CLIProxyPoolWidget.WidgetExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayfold.CLIProxyPoolWidget.WidgetExtension;
 				PRODUCT_NAME = CLIProxyPoolWidgetExtension;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -436,7 +436,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 0.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zipwuu.CLIProxyPoolWidget.WidgetExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bayfold.CLIProxyPoolWidget.WidgetExtension;
 				PRODUCT_NAME = CLIProxyPoolWidgetExtension;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

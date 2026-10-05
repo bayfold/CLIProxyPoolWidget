@@ -39,6 +39,61 @@ It shows a pool overview with account availability, Plus-base remaining capacity
 - Batched usage fetching with one retry
 - Local-only settings storage
 
+## Company subscriptions mode (Bayfold fork extension)
+
+This fork uses separate `com.bayfold.CLIProxyPoolWidget` app and
+`com.bayfold.CLIProxyPoolWidget.WidgetExtension` bundle identifiers and a separate
+widget bridge directory. It does not migrate or overwrite an installed upstream
+app's settings, credentials, or snapshots. Upstream license notices are preserved.
+
+Choose **Company subscriptions** as the source and enter your company-gateway
+HTTPS origin, provider (`claude` or `codex`), and an exact allowed model ID. Connect
+through Tailscale from a member-owned device; Serve supplies the member identity.
+Tagged devices, CI leases, and model access keys cannot read this view. No gateway
+management key, provider token, browser cookie, or standalone personal account is
+needed.
+
+The app, menu bar, and desktop widget use only the passive member-scoped
+`GET /api/v1/capacity?provider=...&model=...` projection. Personal means subscriptions
+you own in company-gateway. The available pool includes these and subscriptions
+explicitly shared with you, once each. Counts and individual limiting headroom are
+shown; percentages from different subscriptions are never added together. Quota
+observation disabled on the gateway, incomplete/stale observations, and a reset
+awaiting a new observation remain unknown. A reset countdown never refills quota.
+
+Company mode never invokes upstream provider quota calls, account management,
+reset grants, Xiaomi requests, or receipt printing. Its network session has no
+cookie/credential storage or HTTP cache and refuses redirects. Authentication
+failures show a Tailscale/member error. Settings changes cancel pending work,
+clear the displayed summary, and reject responses from earlier settings versions.
+Company snapshots are deliberately not saved to disk or reused by WidgetKit:
+Serve identity can change independently of app settings. A fresh passive read is
+required for each new widget timeline. Already displayed OS widget timelines may
+remain visible until WidgetKit refreshes them; expired observations render unknown.
+
+Existing standalone CLIProxyAPI configuration remains supported. Existing settings
+without a source field migrate to standalone mode. Its management credentials and
+weighted quota views retain the upstream behavior.
+
+Synthetic company regression (no real service or user state):
+
+```sh
+swiftc Shared/PoolModels.swift Shared/UsageParser.swift Shared/PoolAPIClient.swift Shared/PoolSummaryService.swift Tests/CompanyCapacityRegression.swift -o /tmp/company-capacity-test
+/tmp/company-capacity-test
+```
+
+Full app and widget Swift source typechecking (validated with the installed
+macOS15.2 SDK; the newest Command Line Tools SDK lacks the SwiftUIMacros plugin):
+
+```sh
+swiftc -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX15.2.sdk -typecheck Shared/*.swift App/*.swift
+swiftc -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX15.2.sdk -typecheck Shared/*.swift Widget/CLIProxyPoolWidget.swift
+```
+
+A full signed app/widget archive still requires Xcode and local signing/app group
+configuration. Command Line Tools can validate the Swift sources but do not
+produce the Xcode archive.
+
 ## How It Works
 
 The app uses the same CLIProxyAPI Management API flow as the web control panel.

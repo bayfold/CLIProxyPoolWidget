@@ -58,7 +58,12 @@ enum PoolWatchConstants {
     static let xiaomiPlatformBaseURL = "https://platform.xiaomimimo.com/api/v1"
 }
 
+enum PoolSource: String, Codable, CaseIterable { case standalone, companyGateway }
+
 struct PoolSettings: Codable, Equatable {
+    var source: PoolSource = .standalone
+    var companyProvider: String = "claude"
+    var companyModel: String = ""
     var baseURL: String
     var managementKey: String
     var refreshMinutes: Int
@@ -95,7 +100,7 @@ struct PoolSettings: Codable, Equatable {
 
     var isConfigured: Bool {
         !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !managementKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        (source == .companyGateway ? !companyModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : !managementKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     var isXiaomiTokenPlanConfigured: Bool {
@@ -117,6 +122,7 @@ struct PoolSettings: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case source, companyProvider, companyModel
         case baseURL
         case managementKey
         case refreshMinutes
@@ -170,6 +176,9 @@ struct PoolSettings: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decodeIfPresent(PoolSource.self, forKey: .source) ?? .standalone
+        companyProvider = try container.decodeIfPresent(String.self, forKey: .companyProvider) ?? "claude"
+        companyModel = try container.decodeIfPresent(String.self, forKey: .companyModel) ?? ""
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? Self.empty.baseURL
         managementKey = try container.decodeIfPresent(String.self, forKey: .managementKey) ?? ""
         refreshMinutes = try container.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? Self.empty.refreshMinutes
@@ -896,6 +905,8 @@ struct PoolSummary: Codable, Hashable {
     let xiaomiTokenPlan: XiaomiTokenPlanSnapshot?
     let errorMessage: String?
 
+    var companyCapacity: CompanyCapacity? = nil
+
     var weeklyRemainingPercent: Double {
         weeklyRemainingUnits * 100
     }
@@ -911,6 +922,28 @@ struct PoolSummary: Codable, Hashable {
     var hasWeeklyQuota: Bool {
         weeklyCapacityUnits > 0
     }
+
+    static func companyError(_ message: String) -> PoolSummary { PoolSummary(
+        generatedAt: Date(),
+        totalAccounts: 0,
+        availableAccounts: 0,
+        coolingAccounts: 0,
+        disabledAccounts: 0,
+        failedRecentRequests: 0,
+        primaryRemainingUnits: 0,
+        primaryCapacityUnits: 0,
+        weeklyRemainingUnits: 0,
+        weeklyCapacityUnits: 0,
+        nextPrimaryResetHint: nil,
+        nextWeeklyResetHint: nil,
+        recentRequests: [],
+        planBreakdown: [],
+        accounts: [],
+        apiKeyUsages: [],
+        apiKeyUsageSummary: nil,
+        xiaomiTokenPlan: nil,
+        errorMessage: message
+    ) }
 
     static let placeholder = PoolSummary(
         generatedAt: Date(),
@@ -973,5 +1006,51 @@ enum DateParser {
 
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: trimmed)
+    }
+}
+
+// Passive, member-scoped company projection. No provider credentials or native IDs.
+struct CompanyCapacity: Codable, Hashable {
+    let member_id: String
+    let provider: String
+    let model: String
+    let mode: String
+    let advisory: Bool
+    let accounts: [CompanyCapacityAccount]
+    var personal: [CompanyCapacityAccount] { accounts.filter { $0.ownership_tier == "own" } }
+    var shared: [CompanyCapacityAccount] { accounts.filter { $0.ownership_tier == "shared" } }
+}
+struct CompanyCapacityAccount: Codable, Hashable, Identifiable {
+    let id: String
+    let ownership_tier: String
+    let freshness: String
+    let observed_at: Double?
+    let headroom: Double?
+    let limiting_reset: Double?
+    let scoreable: Bool
+    let windows: [CompanyCapacityWindow]
+    func usableHeadroom(at now: Date) -> Double? {
+        guard freshness == "fresh", scoreable,
+              let observed_at, now.timeIntervalSince1970 - observed_at <= 300,
+              observed_at <= now.timeIntervalSince1970 + 30,
+              !windows.isEmpty,
+              windows.allSatisfy({ $0.usableRemaining(at: now) != nil }),
+              let headroom, headroom.isFinite, (0...1).contains(headroom) else { return nil }
+        return headroom
+    }
+}
+struct CompanyCapacityWindow: Codable, Hashable, Identifiable {
+    let id: String
+    let resource: String
+    let duration_seconds: Int?
+    let remaining_fraction: Double
+    let reset_at: Double?
+    let observed_at: Double
+    func usableRemaining(at now: Date) -> Double? {
+        guard remaining_fraction.isFinite, (0...1).contains(remaining_fraction),
+              now.timeIntervalSince1970 - observed_at <= 300,
+              observed_at <= now.timeIntervalSince1970 + 30,
+              reset_at.map({ $0 > now.timeIntervalSince1970 }) ?? true else { return nil }
+        return remaining_fraction
     }
 }

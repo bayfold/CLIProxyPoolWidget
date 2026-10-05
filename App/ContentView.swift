@@ -15,10 +15,23 @@ struct ContentView: View {
         NavigationSplitView {
             List {
                 Section(L10n.text("Connection", "连接")) {
+                    Picker("Source", selection: $draft.source) {
+                        Text("CLIProxyAPI (standalone)").tag(PoolSource.standalone)
+                        Text("Company subscriptions").tag(PoolSource.companyGateway)
+                    }
                     TextField(L10n.text("Pool URL", "池地址"), text: $draft.baseURL)
                         .textFieldStyle(.roundedBorder)
-                    SecureField(L10n.text("Management key", "管理密钥"), text: $draft.managementKey)
-                        .textFieldStyle(.roundedBorder)
+                    if draft.source == .companyGateway {
+                        Picker("Provider", selection: $draft.companyProvider) {
+                            Text("Claude").tag("claude")
+                            Text("Codex").tag("codex")
+                        }
+                        TextField("Allowed model ID", text: $draft.companyModel)
+                        Text("Use your company-gateway HTTPS URL over Tailscale. Personal subscriptions are accounts you own in the gateway. No management key is required.").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        SecureField(L10n.text("Management key", "管理密钥"), text: $draft.managementKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
 
                 Section(L10n.text("Xiaomi Token Plan", "小米 Token Plan")) {
@@ -595,7 +608,9 @@ struct SummaryView: View {
                 }
             }
 
-            if let error = summary.errorMessage,
+            if let capacity = summary.companyCapacity {
+                CompanySubscriptionsView(capacity: capacity, compact: false)
+            } else if let error = summary.errorMessage,
                summary.xiaomiTokenPlan == nil,
                summary.apiKeyUsageSummary == nil {
                 ContentUnavailableView(L10n.text("Fetch failed", "获取失败"), systemImage: "exclamationmark.triangle", description: Text(error))
@@ -1577,5 +1592,62 @@ extension PoolSummary {
             return 0
         }
         return max(0, min(100, weeklyRemainingUnits / weeklyCapacityUnits * 100))
+    }
+}
+
+
+struct CompanySubscriptionsView: View {
+    let capacity: CompanyCapacity
+    let compact: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Company subscriptions").font(.headline)
+            Text("\(capacity.provider) · \(capacity.model)").font(.caption).foregroundStyle(.secondary)
+            Text("Personal: \(capacity.personal.count) · Shared: \(capacity.shared.count) · Available pool: \(capacity.accounts.count)")
+                .font(.caption)
+            if capacity.mode == "off" {
+                Text("Quota observation is disabled; headroom is unknown.").font(.caption).foregroundStyle(.secondary)
+            }
+            CompanySubscriptionSection(title: "Personal subscriptions", accounts: capacity.personal, limit: compact ? 3 : 64)
+            CompanySubscriptionSection(title: "Shared subscriptions", accounts: capacity.shared, limit: compact ? 3 : 64)
+            Text("Available pool includes personal and shared accounts once. Percentages are per subscription; they are not added together.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }.padding()
+    }
+}
+struct CompanySubscriptionSection: View {
+    let title: String
+    let accounts: [CompanyCapacityAccount]
+    let limit: Int
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.bold())
+            if accounts.isEmpty { Text("None").font(.caption).foregroundStyle(.secondary) }
+            ForEach(Array(accounts.prefix(limit))) { account in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text("Subscription \(account.id.prefix(8))").font(.caption)
+                        Spacer()
+                        if let fraction = account.usableHeadroom(at: Date()) {
+                            Text(String(format: "%.0f%% limiting headroom", fraction * 100)).font(.caption)
+                        } else {
+                            Text(account.freshness == "fresh" ? "Unknown" : account.freshness.replacingOccurrences(of: "_", with: " ")).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    ForEach(account.windows) { window in
+                        HStack {
+                            Text(window.id).font(.caption2)
+                            if let remaining = window.usableRemaining(at: Date()) {
+                                Text(String(format: "%.0f%% left", remaining * 100)).font(.caption2)
+                            } else { Text("Unknown / awaiting observation").font(.caption2) }
+                            if let reset = window.reset_at {
+                                Text(Date(timeIntervalSince1970: reset), style: .relative).font(.caption2)
+                            }
+                        }.foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if accounts.count > limit { Text("+\(accounts.count - limit) more in the app").font(.caption2) }
+        }
     }
 }

@@ -16,8 +16,8 @@ final class SettingsStore: ObservableObject {
     private nonisolated static let summaryKey = "poolWatch.summary"
     private nonisolated static let settingsFileName = "poolWatch-settings.json"
     private nonisolated static let summaryFileName = "poolWatch-summary.json"
-    private nonisolated static let widgetExtensionBundleID = "com.zipwuu.CLIProxyPoolWidget.WidgetExtension"
-    private nonisolated static let widgetBridgeDirectoryName = "CLIProxyPoolWidget"
+    private nonisolated static let widgetExtensionBundleID = "com.bayfold.CLIProxyPoolWidget.WidgetExtension"
+    private nonisolated static let widgetBridgeDirectoryName = "BayfoldCLIProxyPoolWidget"
     private let key = SettingsStore.settingsKey
 
     init(defaults: UserDefaults = .standard) {
@@ -38,7 +38,14 @@ final class SettingsStore: ObservableObject {
     @discardableResult
     func syncToWidget(_ settings: PoolSettings) -> Bool {
         saveForApp(settings)
-        guard let data = try? JSONEncoder().encode(settings) else {
+        var widgetSettings = settings
+        if settings.source == .companyGateway {
+            widgetSettings.managementKey = ""
+            widgetSettings.xiaomiCookie = ""
+            widgetSettings.xiaomiTokenPlanEnabled = false
+            Self.clearSummaryForWidget()
+        }
+        guard let data = try? JSONEncoder().encode(widgetSettings) else {
             return false
         }
 
@@ -72,6 +79,9 @@ final class SettingsStore: ObservableObject {
 
     @discardableResult
     nonisolated static func saveSummaryForWidget(_ summary: PoolSummary) -> Bool {
+        // Company identity is supplied by Serve on each request. Never reuse a disk
+        // snapshot across an identity change that the app cannot observe.
+        guard summary.companyCapacity == nil else { clearSummaryForWidget(); return true }
         guard let data = try? JSONEncoder().encode(summary) else {
             return false
         }
@@ -88,7 +98,15 @@ final class SettingsStore: ObservableObject {
         return didSync
     }
 
+    nonisolated static func clearSummaryForWidget() {
+        for url in [widgetBridgeFileURL(named: summaryFileName), sharedFileURL(named: summaryFileName)].compactMap({ $0 }) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        groupDefaults()?.removeObject(forKey: summaryKey)
+    }
+
     nonisolated static func loadSummaryForWidget() -> PoolSummary? {
+        if loadForWidget().source == .companyGateway { return nil }
         if let summary = loadFromWidgetBridgeFile(PoolSummary.self, named: summaryFileName) {
             return summary
         }

@@ -30,6 +30,15 @@ struct CLIProxyPoolWidgetApp: App {
                 .frame(minWidth: 620, minHeight: 520)
         }
         .windowStyle(.titleBar)
+        MenuBarExtra("Company subscriptions", systemImage: "chart.bar", isInserted: .constant(settingsStore.settings.source == .companyGateway)) {
+            if let capacity = refreshCoordinator.summary.companyCapacity {
+                CompanySubscriptionsView(capacity: capacity, compact: true).frame(width: 360)
+            } else {
+                Text(refreshCoordinator.summary.errorMessage ?? "Open the app to configure company-gateway.")
+            }
+            Button("Refresh") { Task { await refreshCoordinator.refresh() } }
+        }
+        .menuBarExtraStyle(.window)
     }
 }
 
@@ -45,6 +54,9 @@ final class PoolRefreshCoordinator: ObservableObject {
     private let quotaPrintManager: QuotaPrintManager
     private var refreshTimer: Timer?
     private var settingsSubscription: AnyCancellable?
+    private var loadTask: Task<PoolSummary, Never>?
+    private var settingsGeneration = 0
+    private var previousSettings: PoolSettings?
     private var backgroundActivity: NSObjectProtocol?
 
     init(settingsStore: SettingsStore, quotaPrintManager: QuotaPrintManager) {
@@ -66,7 +78,7 @@ final class PoolRefreshCoordinator: ObservableObject {
     }
 
     static func sanitize(_ settings: PoolSettings) -> PoolSettings {
-        PoolSettings(
+        var result = PoolSettings(
             baseURL: settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             managementKey: settings.managementKey.trimmingCharacters(in: .whitespacesAndNewlines),
             refreshMinutes: max(5, settings.refreshMinutes),
@@ -83,6 +95,16 @@ final class PoolRefreshCoordinator: ObservableObject {
             preferredLanguageCode: AppLanguagePreference(rawValue: settings.preferredLanguageCode)?.rawValue ?? AppLanguagePreference.auto.rawValue,
             ignoredAPIKeyIDs: settings.ignoredAPIKeyIDs
         )
+        result.source = settings.source
+        result.companyProvider = settings.companyProvider
+        result.companyModel = settings.companyModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.source == .companyGateway {
+            result.managementKey = ""
+            result.xiaomiCookie = ""
+            result.xiaomiTokenPlanEnabled = false
+            result.appRefreshSeconds = max(30, result.appRefreshSeconds)
+        }
+        return result
     }
 
     func saveAndRefresh(_ settings: PoolSettings) async {
@@ -118,11 +140,17 @@ final class PoolRefreshCoordinator: ObservableObject {
         defer {
             isLoading = false
             refreshInFlight = false
-            updateSchedule(for: settings)
+            updateSchedule(for: Self.sanitize(settingsStore.settings))
         }
 
         lastMessage = settings.liveRefreshEnabled && !showSpinner ? L10n.text("Refreshing...", "刷新中…") : nil
-        let loaded = await PoolSummaryService(client: PoolAPIClient(settings: settings)).loadSummary()
+        let generation = settingsGeneration
+        if settings.source == .companyGateway { summary = .placeholder }
+        let task = Task { await PoolSummaryService(client: PoolAPIClient(settings: settings)).loadSummary() }
+        loadTask = task
+        let loaded = await task.value
+        guard generation == settingsGeneration, !task.isCancelled else { return }
+        loadTask = nil
         summary = loaded
         if let error = loaded.errorMessage {
             lastMessage = error
@@ -136,20 +164,25 @@ final class PoolRefreshCoordinator: ObservableObject {
             }
             settingsStore.syncSummaryToWidget(loaded)
             WidgetCenter.shared.reloadAllTimelines()
-            await quotaPrintManager.process(summary: loaded)
+            if settings.source != .companyGateway { await quotaPrintManager.process(summary: loaded) }
         }
     }
 
     private func settingsDidChange(_ rawSettings: PoolSettings) {
         let settings = Self.sanitize(rawSettings)
+        if let previousSettings, previousSettings != settings {
+            settingsGeneration += 1
+            loadTask?.cancel()
+            loadTask = nil
+            summary = .placeholder
+            SettingsStore.clearSummaryForWidget()
+        }
+        previousSettings = settings
         syncSettings(settings)
         updateSchedule(for: settings)
     }
 
     private func syncSettings(_ settings: PoolSettings) {
-        guard settings.isConfigured || settings.isXiaomiTokenPlanConfigured else {
-            return
-        }
         settingsStore.syncToWidget(settings)
         WidgetCenter.shared.reloadTimelines(ofKind: "CLIProxyPoolWidget")
     }

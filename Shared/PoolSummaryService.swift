@@ -5,6 +5,15 @@ struct PoolSummaryService {
     private let maxConcurrentUsageFetches = 4
 
     func loadSummary() async -> PoolSummary {
+        if client.settings.source == .companyGateway {
+            do {
+                var summary = PoolSummary.placeholder
+                summary.companyCapacity = try await client.fetchCompanyCapacity()
+                return summary
+            } catch {
+                return PoolSummary.companyError(error.localizedDescription)
+            }
+        }
         async let xiaomiTokenPlan = loadXiaomiTokenPlanIfNeeded()
         async let apiKeyUsage = loadAPIKeyUsageIfNeeded()
 

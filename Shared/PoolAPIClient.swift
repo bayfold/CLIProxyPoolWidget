@@ -33,9 +33,65 @@ enum PoolAPIError: LocalizedError {
     }
 }
 
+private func companySessionConfiguration() -> URLSessionConfiguration {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.httpCookieStorage = nil
+    configuration.httpShouldSetCookies = false
+    configuration.urlCredentialStorage = nil
+    configuration.urlCache = nil
+    return configuration
+}
+
+private final class CompanyNoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 struct PoolAPIClient {
     let settings: PoolSettings
     var session: URLSession = .shared
+    var companySession: URLSession? = nil
+
+    func companyCapacityRequest() throws -> URLRequest {
+        guard settings.source == .companyGateway, settings.isConfigured,
+              var url = URLComponents(string: settings.baseURL), url.scheme == "https",
+              url.host != nil, url.user == nil, url.password == nil,
+              (url.path.isEmpty || url.path == "/"), url.query == nil, url.fragment == nil,
+              ["claude", "codex"].contains(settings.companyProvider) else { throw PoolAPIError.invalidBaseURL }
+        url.path = "/api/v1/capacity"
+        url.queryItems = [URLQueryItem(name: "provider", value: settings.companyProvider), URLQueryItem(name: "model", value: settings.companyModel)]
+        guard let endpoint = url.url else { throw PoolAPIError.invalidBaseURL }
+        var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    func fetchCompanyCapacity() async throws -> CompanyCapacity {
+        let request = try companyCapacityRequest()
+        let connection = companySession ?? URLSession(configuration: companySessionConfiguration(), delegate: CompanyNoRedirectDelegate(), delegateQueue: nil)
+        defer { if companySession == nil { connection.invalidateAndCancel() } }
+        let (stream, response) = try await connection.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else { throw PoolAPIError.invalidResponse }
+        guard http.url?.host == request.url?.host else { throw PoolAPIError.invalidResponse }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw PoolAPIError.httpStatus(http.statusCode, "Connect through Tailscale using an authenticated company member device. Tagged devices and model keys cannot read subscriptions.")
+        }
+        if http.statusCode == 404 { throw PoolAPIError.httpStatus(404, "This gateway does not expose the company capacity endpoint for this provider/model yet.") }
+        guard http.statusCode == 200 else { throw PoolAPIError.invalidResponse }
+        var bytes = Data()
+        for try await byte in stream {
+            guard bytes.count < 2 * 1024 * 1024 else { throw PoolAPIError.invalidResponse }
+            bytes.append(byte)
+        }
+        let result = try JSONDecoder().decode(CompanyCapacity.self, from: bytes)
+        guard !result.member_id.isEmpty, result.provider == settings.companyProvider,
+              result.model == settings.companyModel, result.advisory,
+              result.accounts.count <= 64, Set(result.accounts.map(\.id)).count == result.accounts.count,
+              result.accounts.allSatisfy({ ["own", "shared"].contains($0.ownership_tier) && $0.windows.count <= 16 }) else { throw PoolAPIError.invalidResponse }
+        return result
+    }
 
     func fetchAuthFiles() async throws -> [AuthFile] {
         let url = try managementURL(path: "/v0/management/auth-files")
