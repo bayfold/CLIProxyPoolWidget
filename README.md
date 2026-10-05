@@ -41,6 +41,10 @@ It shows a pool overview with account availability, Plus-base remaining capacity
 
 ## Company subscriptions mode (Bayfold fork extension)
 
+[Management UI](https://github.com/bayfold/Cli-Proxy-API-Management-Center) ·
+[Component specification](https://github.com/bayfold/Cli-Proxy-API-Management-Center/blob/company/docs/company-gateway.md) ·
+[GitHub Actions OIDC specification](https://github.com/bayfold/Cli-Proxy-API-Management-Center/blob/company/docs/ci-oidc.md) (design only)
+
 This fork uses separate `com.bayfold.CLIProxyPoolWidget` app and
 `com.bayfold.CLIProxyPoolWidget.WidgetExtension` bundle identifiers and a separate
 widget bridge directory. It does not migrate or overwrite an installed upstream

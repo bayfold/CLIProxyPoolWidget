@@ -37,6 +37,10 @@ struct CLIProxyPoolWidgetApp: App {
                 Text(refreshCoordinator.summary.errorMessage ?? "Open the app to configure company-gateway.")
             }
             Button("Refresh") { Task { await refreshCoordinator.refresh() } }
+            Divider()
+            Link("Documentation", destination: URL(string: "https://github.com/bayfold/Cli-Proxy-API-Management-Center/blob/company/docs/company-gateway.md")!)
+            Link("GitHub Actions OIDC spec", destination: URL(string: "https://github.com/bayfold/Cli-Proxy-API-Management-Center/blob/company/docs/ci-oidc.md")!)
+            Link("Management UI source", destination: URL(string: "https://github.com/bayfold/Cli-Proxy-API-Management-Center")!)
         }
         .menuBarExtraStyle(.window)
     }
