@@ -26,7 +26,9 @@ struct ContentView: View {
                             Text("Claude").tag("claude")
                             Text("Codex").tag("codex")
                         }
-                        TextField("Allowed model ID", text: $draft.companyModel)
+                        TextField(L10n.text("Allowed model ID (required)", "允许的模型 ID（必填）"), text: $draft.companyModel)
+                        Text(L10n.text("Use a model ID your company account is allowed to access for this provider.", "请填写您的公司账号允许访问的所选提供商模型 ID。"))
+                            .font(.caption).foregroundStyle(.secondary)
                         Text("Use your company-gateway HTTPS URL over Tailscale. Personal subscriptions are accounts you own in the gateway. No management key is required.").font(.caption).foregroundStyle(.secondary)
                     } else {
                         SecureField(L10n.text("Management key", "管理密钥"), text: $draft.managementKey)

@@ -128,10 +128,7 @@ final class PoolRefreshCoordinator: ObservableObject {
         guard settings.isConfigured || settings.isXiaomiTokenPlanConfigured else {
             summary = .placeholder
             nextRefreshAt = nil
-            lastMessage = L10n.text(
-                "Configure the pool URL and management key or Xiaomi Token Plan cookie first.",
-                "请先配置池地址和管理密钥，或填写小米 Token Plan Cookie。"
-            )
+            lastMessage = settings.configurationPrompt
             updateSchedule(for: settings)
             return
         }

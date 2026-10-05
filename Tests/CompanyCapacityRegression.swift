@@ -25,6 +25,31 @@ private final class CompanyMockProtocol: URLProtocol {
         settings.managementKey = "must-never-leave-device"
         settings.xiaomiCookie = "must-never-be-used"
         settings.xiaomiTokenPlanEnabled = true
+        var keyless = settings
+        keyless.managementKey = ""
+        precondition(keyless.isConfigured, "company mode must not require a management key")
+        _ = try PoolAPIClient(settings: keyless).companyCapacityRequest()
+        var incomplete = keyless
+        incomplete.companyModel = "  "
+        precondition(!incomplete.isConfigured)
+        precondition(incomplete.configurationPrompt == L10n.text(
+            "Enter an allowed model ID for the selected company provider.",
+            "请填写所选公司提供商允许使用的模型 ID。"
+        ))
+        do {
+            _ = try PoolAPIClient(settings: incomplete).companyCapacityRequest()
+            fatalError("missing company model accepted")
+        } catch {
+            precondition(error.localizedDescription == incomplete.configurationPrompt)
+        }
+        incomplete.baseURL = " "
+        precondition(incomplete.configurationPrompt == L10n.text(
+            "Enter your company-gateway HTTPS URL over Tailscale.",
+            "请填写通过 Tailscale 访问的 company-gateway HTTPS 地址。"
+        ))
+        var standalone = keyless
+        standalone.source = .standalone
+        precondition(!standalone.isConfigured, "standalone mode must still require a management key")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CompanyMockProtocol.self]
         let mock = URLSession(configuration: configuration)

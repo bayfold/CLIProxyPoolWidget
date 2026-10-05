@@ -2,6 +2,7 @@ import Foundation
 
 enum PoolAPIError: LocalizedError {
     case notConfigured
+    case companyNotConfigured(String)
     case xiaomiNotConfigured
     case invalidBaseURL
     case chatGPTChallenge(Int)
@@ -13,6 +14,8 @@ enum PoolAPIError: LocalizedError {
         switch self {
         case .notConfigured:
             return L10n.text("Pool URL and management key are required.", "需要填写池地址和管理密钥。")
+        case let .companyNotConfigured(message):
+            return message
         case .xiaomiNotConfigured:
             return L10n.text("Xiaomi Token Plan cookie is required.", "需要填写小米 Token Plan 的 Cookie。")
         case .invalidBaseURL:
@@ -54,8 +57,10 @@ struct PoolAPIClient {
     var companySession: URLSession? = nil
 
     func companyCapacityRequest() throws -> URLRequest {
-        guard settings.source == .companyGateway, settings.isConfigured,
-              var url = URLComponents(string: settings.baseURL), url.scheme == "https",
+        guard settings.source == .companyGateway, settings.isConfigured else {
+            throw PoolAPIError.companyNotConfigured(settings.configurationPrompt)
+        }
+        guard var url = URLComponents(string: settings.baseURL), url.scheme == "https",
               url.host != nil, url.user == nil, url.password == nil,
               (url.path.isEmpty || url.path == "/"), url.query == nil, url.fragment == nil,
               ["claude", "codex"].contains(settings.companyProvider) else { throw PoolAPIError.invalidBaseURL }

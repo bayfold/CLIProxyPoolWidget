@@ -55,7 +55,8 @@ HTTPS origin, provider (`claude` or `codex`), and an exact allowed model ID. Con
 through Tailscale from a member-owned device; Serve supplies the member identity.
 Tagged devices, CI leases, and model access keys cannot read this view. No gateway
 management key, provider token, browser cookie, or standalone personal account is
-needed.
+needed. Saving incomplete company settings points to the missing URL or model ID;
+it never asks for a management key.
 
 The app, menu bar, and desktop widget use only the passive member-scoped
 `GET /api/v1/capacity?provider=...&model=...` projection. Personal means subscriptions

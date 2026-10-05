@@ -103,6 +103,25 @@ struct PoolSettings: Codable, Equatable {
         (source == .companyGateway ? !companyModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : !managementKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
+    var configurationPrompt: String {
+        if source == .companyGateway {
+            if baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return L10n.text(
+                    "Enter your company-gateway HTTPS URL over Tailscale.",
+                    "请填写通过 Tailscale 访问的 company-gateway HTTPS 地址。"
+                )
+            }
+            return L10n.text(
+                "Enter an allowed model ID for the selected company provider.",
+                "请填写所选公司提供商允许使用的模型 ID。"
+            )
+        }
+        return L10n.text(
+            "Configure the pool URL and management key or Xiaomi Token Plan cookie first.",
+            "请先配置池地址和管理密钥，或填写小米 Token Plan Cookie。"
+        )
+    }
+
     var isXiaomiTokenPlanConfigured: Bool {
         xiaomiTokenPlanEnabled &&
         !xiaomiCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
